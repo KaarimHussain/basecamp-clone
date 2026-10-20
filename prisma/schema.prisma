@@ -17,17 +17,18 @@ model User {
   avatarUrl    String?
   createdAt    DateTime @default(now())
 
-  memberships   Member[]
-  watching      CategoryWatcher[]
-  tasksCreated  Task[]            @relation("TaskCreator")
-  assignments   TaskAssignee[]
-  subscriptions TaskSubscriber[]
-  comments      Comment[]
-  channels      ChannelMember[]
-  messages      Message[]
-  notifications Notification[]
-  activity      Activity[]
-  invitesSent   Invite[]
+  memberships       Member[]
+  watching          CategoryWatcher[]
+  tasksCreated      Task[]            @relation("TaskCreator")
+  assignments       TaskAssignee[]
+  subscriptions     TaskSubscriber[]
+  comments          Comment[]
+  channels          ChannelMember[]
+  messages          Message[]
+  notifications     Notification[]
+  notificationsSent Notification[]    @relation("NotificationActor")
+  activity          Activity[]
+  invitesSent       Invite[]
 }
 
 model Workspace {
@@ -285,6 +286,7 @@ model Notification {
   id        String    @id @default(cuid())
   userId    String
   type      String
+  actorId   String?
   taskId    String?
   messageId String?
   readAt    DateTime?
@@ -292,10 +294,12 @@ model Notification {
   createdAt DateTime  @default(now())
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor   User?    @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
   task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
   message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt, createdAt])
+  @@index([emailedAt, readAt, createdAt])
 }
 
 model Activity {

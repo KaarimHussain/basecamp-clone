@@ -8,6 +8,7 @@ import { z } from "zod";
 import { signIn, signOut } from "@/auth";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
+import { backfill, removeLeadershipFollows } from "@/lib/leadership";
 
 export async function login(_: string | undefined, form: FormData) {
   try {
@@ -48,12 +49,42 @@ export async function setRole(form: FormData) {
   const userId = z.string().parse(form.get("userId"));
   const role = z.enum(["LEADERSHIP", "MEMBER"]).parse(form.get("role"));
   if (userId === me.userId) throw new Error("Cannot change your own role");
-  // ponytail: LEADERSHIP backfill/removal on open tasks lands with auto-follow in phase 4.
-  await prisma.member.update({
-    where: { workspaceId_userId: { workspaceId: me.workspaceId, userId } },
-    data: { role },
+  await prisma.$transaction(async (tx) => {
+    await tx.member.update({
+      where: { workspaceId_userId: { workspaceId: me.workspaceId, userId } },
+      data: { role },
+    });
+    // Promotion follows every open task; demotion removes only the LEADERSHIP-reason follows.
+    if (role === "LEADERSHIP") await backfill(tx, userId, { workspaceId: me.workspaceId });
+    else await removeLeadershipFollows(tx, me.workspaceId, userId, {});
   });
   revalidatePath("/members");
+}
+
+// Replaces a category's watchers. New watchers follow its open tasks; removed ones drop those follows.
+export async function setWatchers(form: FormData) {
+  const me = await requireMember("OWNER");
+  const categoryId = z.string().parse(form.get("categoryId"));
+  const category = await prisma.category.findFirst({ where: { id: categoryId, workspaceId: me.workspaceId } });
+  if (!category) throw new Error("Category not found");
+
+  const wanted = new Set(
+    (await prisma.member.findMany({
+      where: { workspaceId: me.workspaceId, userId: { in: form.getAll("userIds").map(String) } },
+      select: { userId: true },
+    })).map((m) => m.userId),
+  );
+  const current = new Set((await prisma.categoryWatcher.findMany({ where: { categoryId } })).map((w) => w.userId));
+  const added = [...wanted].filter((id) => !current.has(id));
+  const removed = [...current].filter((id) => !wanted.has(id));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.categoryWatcher.createMany({ data: added.map((userId) => ({ categoryId, userId })) });
+    await tx.categoryWatcher.deleteMany({ where: { categoryId, userId: { in: removed } } });
+    for (const userId of added) await backfill(tx, userId, { categoryId });
+    for (const userId of removed) await removeLeadershipFollows(tx, me.workspaceId, userId, { categoryId });
+  });
+  revalidatePath("/categories");
 }
 
 const acceptSchema = z.object({

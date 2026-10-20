@@ -6,7 +6,7 @@ export type Upload = { key: string; name: string; mime: string; size: number };
 
 const MAX = 25 * 1024 * 1024;
 
-// Uploads straight to R2 via presigned PUT, then exposes the results as a hidden
+// Uploads each file to /api/uploads as soon as it's picked, then exposes the results as a hidden
 // "uploads" field for the surrounding server-action form.
 export default function Uploader() {
   const [files, setFiles] = useState<Upload[]>([]);
@@ -23,17 +23,12 @@ export default function Uploader() {
     try {
       const done = await Promise.all(
         picked.map(async (f) => {
-          const mime = f.type || "application/octet-stream";
-          const res = await fetch("/api/uploads/presign", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ name: f.name, mime, size: f.size }),
-          });
-          if (!res.ok) throw new Error((await res.json()).error ?? "Upload failed");
-          const { key, url } = await res.json();
-          const put = await fetch(url, { method: "PUT", headers: { "content-type": mime }, body: f });
-          if (!put.ok) throw new Error("Upload to storage failed");
-          return { key, name: f.name, mime, size: f.size };
+          const body = new FormData();
+          body.append("file", f);
+          const res = await fetch("/api/uploads", { method: "POST", body });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error ?? "Upload failed");
+          return json as Upload;
         }),
       );
       setFiles((prev) => [...prev, ...done]);

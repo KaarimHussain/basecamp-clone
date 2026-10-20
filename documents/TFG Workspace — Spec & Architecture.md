@@ -25,7 +25,7 @@ v1 ships one workspace with category boards, task detail, chat and leadership au
 | Tasks | Title, description, assignees, due date, status, priority | List view + Kanban view per category |
 | Comments | Rich text, @mentions, edit/delete own | Mentions notify instantly |
 | Tags | Workspace-level colored tags, filter by tag | Real tags, not title prefixes |
-| Uploads | Images + files on tasks and comments | Cloudflare R2, presigned URLs, 25 MB cap |
+| Uploads | Images + files on tasks and comments | Local disk (`UPLOAD_DIR`), access-checked downloads, 25 MB cap |
 | Chat | Channels (one per category + General), threads, DMs, file sharing | Realtime, unread counts |
 | Leadership loop | Auto-follow every task, configurable per category | See Auto-loop section |
 | Notifications | In-app inbox + email digest | Web push in v2 |
@@ -35,7 +35,7 @@ v1 ships one workspace with category boards, task detail, chat and leadership au
 
 ## Stack and architecture
 
-Next.js 16 (App Router) + TypeScript + Prisma + self-hosted PostgreSQL (no managed provider), with a separate Socket.io service for realtime and Cloudflare R2 for files.
+Next.js 16 (App Router) + TypeScript + Prisma + self-hosted PostgreSQL (no managed provider), with a separate Socket.io service for realtime and local disk storage for files.
 
 &#91;embedded content: architecture · 4 services\]
 
@@ -92,7 +92,7 @@ REST route handlers under `app/api`, Server Actions for form mutations, and one 
 | PUT | `/api/tasks/:id/tags` | Replace tags |
 | POST / DELETE | `/api/tasks/:id/subscribers` | Follow / unfollow |
 | GET / POST | `/api/tasks/:id/comments` | Thread / add comment |
-| POST | `/api/uploads/presign` | Presigned R2 PUT URL |
+| POST | `/api/uploads` | Upload a file (multipart) to local disk |
 | GET / POST | `/api/channels/:id/messages?parent=` | History (cursor) / send; `parent` = thread |
 | GET / PATCH | `/api/notifications` | Inbox / mark read |
 
@@ -146,16 +146,16 @@ Built in order; each phase ships when it works, no fixed dates.
 
 1. **Phase 1:** repo, Prisma schema, Auth.js, workspace + invites + roles, seed categories.
 2. **Phase 2:** tasks CRUD, list + Kanban views (dnd-kit), assignees, due dates, status.
-3. **Phase 3:** task detail, comments with @mentions (Tiptap), tags + filters, R2 uploads.
+3. **Phase 3:** task detail, comments with @mentions (Tiptap), tags + filters, local-disk uploads.
 4. **Phase 4:** leadership auto-follow, category watchers, notification inbox, email digest (Resend).
 5. **Phase 5:** chat: channels, threads, DMs, file sharing, unread counts, presence.
-6. **Phase 6:** activity log, QA pass, deploy (Vercel + self-hosted PostgreSQL + Railway socket service), onboarding the team.
+6. **Phase 6:** activity log, QA pass, deploy (one VPS: Next.js + PostgreSQL + socket service + upload directory; Vercel is out because uploads need a persistent disk), onboarding the team.
 
 ## Open questions for the client
 
 - [ ] Should leadership follow **every** category, or can some leads follow only their own department?
 - [ ] Any categories beyond E-book, Publishing, Cover Design (e.g. Editing, Marketing, Printing)?
 - [ ] Do clients/authors ever need access, or is it internal only?
-- [ ] Hosting budget: fine with \~$20–40/month for a Postgres host (VPS), Railway and R2?
+- [ ] Hosting budget: fine with \~$20–40/month for one VPS (app, Postgres, uploads)?
 - [ ] Is data from Basecamp to be migrated, or start fresh?
 - [ ] Who owns the code and the hosting accounts after handover?

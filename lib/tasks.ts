@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { isEmpty, richText } from "@/lib/rich-text";
+import { changeEvents, notifySubscribers } from "@/lib/notify";
 import { Prisma, type SubReason } from "@/app/generated/prisma/client";
 
 const STATUS = z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE"]);
@@ -81,6 +82,7 @@ export async function createTask(form: FormData) {
       data: [...subs].map(([userId, reason]) => ({ taskId: task.id, userId, reason })),
       skipDuplicates: true,
     });
+    await notifySubscribers(task.id, "task_created", me.userId, [], tx);
   });
 
   revalidatePath(`/c/${categoryId}`);
@@ -112,6 +114,7 @@ export async function updateTask(form: FormData) {
       skipDuplicates: true,
     }),
   ]);
+  for (const type of changeEvents(task, data)) await notifySubscribers(task.id, type, me.userId);
 
   revalidatePath(`/c/${task.categoryId}`);
   revalidatePath(`/t/${task.id}`);
@@ -131,7 +134,40 @@ export async function moveTask(id: string, status: string) {
       completedAt: next === "DONE" ? new Date() : null,
     },
   });
+  for (const type of changeEvents(task, { status: next })) await notifySubscribers(id, type, me.userId);
   revalidatePath(`/c/${task.categoryId}`);
+}
+
+// ── Following ─────────────────────────────────────────────
+
+export async function followTask(form: FormData) {
+  const me = await requireMember();
+  const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
+  await prisma.taskSubscriber.upsert({
+    where: { taskId_userId: { taskId: task.id, userId: me.userId } },
+    update: { mutedAt: null },
+    create: { taskId: task.id, userId: me.userId, reason: "MANUAL" },
+  });
+  revalidatePath(`/t/${task.id}`);
+}
+
+// Leadership follows can't be dropped (only muted); everything else can.
+export async function unfollowTask(form: FormData) {
+  const me = await requireMember();
+  const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
+  await prisma.taskSubscriber.deleteMany({ where: { taskId: task.id, userId: me.userId, reason: { not: "LEADERSHIP" } } });
+  revalidatePath(`/t/${task.id}`);
+}
+
+export async function setMuted(form: FormData) {
+  const me = await requireMember();
+  const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
+  const muted = form.get("muted") === "1";
+  await prisma.taskSubscriber.updateMany({
+    where: { taskId: task.id, userId: me.userId },
+    data: { mutedAt: muted ? new Date() : null },
+  });
+  revalidatePath(`/t/${task.id}`);
 }
 
 export async function archiveTask(form: FormData) {

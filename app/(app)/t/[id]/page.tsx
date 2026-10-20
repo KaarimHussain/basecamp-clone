@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import type { JSONContent } from "@tiptap/react";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
-import { archiveTask, updateTask } from "@/lib/tasks";
+import { archiveTask, followTask, setMuted, unfollowTask, updateTask } from "@/lib/tasks";
 import { addComment, addTaskFiles, createTag, deleteComment, editComment } from "@/lib/comments";
 import { renderRichText } from "@/lib/rich-text";
 import { TaskFields } from "@/app/task-fields";
@@ -21,7 +21,7 @@ function Files({ files }: { files: { id: string; name: string; mime: string; siz
         <li key={f.id}>
           <a href={`/api/attachments/${f.id}`} target="_blank" rel="noopener" className="block rounded border px-2 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-900">
             {f.mime.startsWith("image/") ? (
-              // eslint-disable-next-line @next/next/no-img-element -- presigned R2 URL behind a redirect
+              // eslint-disable-next-line @next/next/no-img-element -- auth-checked file route
               <img src={`/api/attachments/${f.id}`} alt={f.name} className="max-h-32 max-w-48 object-contain" />
             ) : (
               <>📎 {f.name} <span className="text-zinc-500">({Math.ceil(f.size / 1024)} KB)</span></>
@@ -45,6 +45,7 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
         tags: true,
         attachments: true,
         createdBy: { select: { name: true } },
+        subscribers: { include: { user: { select: { name: true } } } },
         comments: {
           orderBy: { createdAt: "asc" },
           include: { author: { select: { name: true } }, attachments: true },
@@ -56,6 +57,7 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
   ]);
   if (!task) notFound();
   const users = members.map((m) => ({ id: m.userId, label: m.user.name }));
+  const mine = task.subscribers.find((s) => s.userId === me.userId);
 
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-10">
@@ -64,6 +66,35 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
         Created by {task.createdBy.name} on {task.createdAt.toISOString().slice(0, 10)}
         {task.completedAt && ` · completed ${task.completedAt.toISOString().slice(0, 10)}`}
       </p>
+
+      <section aria-label="Following" className="mb-6 flex flex-wrap items-center gap-3 rounded border p-3 text-sm">
+        <span className="text-zinc-500">
+          {task.subscribers.length} following: {task.subscribers.map((s) => s.user.name).join(", ")}
+        </span>
+        <span className="ml-auto flex gap-3">
+          {mine ? (
+            <>
+              <span>{mine.mutedAt ? "Muted" : "Following"}{mine.reason === "LEADERSHIP" && " (leadership)"}</span>
+              <form action={setMuted}>
+                <input type="hidden" name="id" value={task.id} />
+                <input type="hidden" name="muted" value={mine.mutedAt ? "0" : "1"} />
+                <button className="underline">{mine.mutedAt ? "Unmute" : "Mute"}</button>
+              </form>
+              {mine.reason !== "LEADERSHIP" && (
+                <form action={unfollowTask}>
+                  <input type="hidden" name="id" value={task.id} />
+                  <button className="underline">Unfollow</button>
+                </form>
+              )}
+            </>
+          ) : (
+            <form action={followTask}>
+              <input type="hidden" name="id" value={task.id} />
+              <button className="underline">Follow</button>
+            </form>
+          )}
+        </span>
+      </section>
 
       <form action={updateTask} className="flex flex-col gap-3">
         <input type="hidden" name="id" value={task.id} />
