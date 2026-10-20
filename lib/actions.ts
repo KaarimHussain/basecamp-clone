@@ -9,6 +9,7 @@ import { signIn, signOut } from "@/auth";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { backfill, removeLeadershipFollows } from "@/lib/leadership";
+import { appUrl, esc, sendMail } from "@/lib/mail";
 
 export async function login(_: string | undefined, form: FormData) {
   try {
@@ -31,7 +32,7 @@ const inviteSchema = z.object({
 export async function createInvite(form: FormData) {
   const me = await requireMember("OWNER");
   const { email, role } = inviteSchema.parse(Object.fromEntries(form));
-  await prisma.invite.create({
+  const invite = await prisma.invite.create({
     data: {
       workspaceId: me.workspaceId,
       email,
@@ -41,6 +42,14 @@ export async function createInvite(form: FormData) {
       expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
     },
   });
+  const link = `${appUrl()}/invite/${invite.token}`;
+  // The link stays visible on the Members page, so a mail failure isn't fatal.
+  await sendMail(
+    email,
+    `${me.user.name} invited you to ${me.workspace.name}`,
+    `<p>${esc(me.user.name)} invited you to join <strong>${esc(me.workspace.name)}</strong> on TFG Workspace.</p>
+     <p><a href="${link}">Accept the invite</a> (expires in 7 days)</p>`,
+  ).catch((err) => console.error("[mail] invite failed:", err));
   revalidatePath("/members");
 }
 
@@ -116,4 +125,97 @@ export async function acceptInvite(_: string | undefined, form: FormData) {
   ]);
 
   await signIn("credentials", { email: invite.email, password, redirectTo: "/" });
+}
+
+// ── Categories (owner) ────────────────────────────────────
+
+const categorySchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  color: z.string().regex(/^#[0-9a-f]{6}$/i),
+});
+
+async function ownCategory(id: unknown, workspaceId: string) {
+  const category = await prisma.category.findFirst({ where: { id: z.string().parse(id), workspaceId } });
+  if (!category) throw new Error("Category not found");
+  return category;
+}
+
+// New category gets its own chat channel, like the seeded ones.
+export async function createCategory(form: FormData) {
+  const me = await requireMember("OWNER");
+  const data = categorySchema.parse(Object.fromEntries(form));
+  const last = await prisma.category.aggregate({ where: { workspaceId: me.workspaceId }, _max: { position: true } });
+  await prisma.category.create({
+    data: {
+      ...data,
+      workspaceId: me.workspaceId,
+      position: (last._max.position ?? -1) + 1,
+      channels: { create: { workspaceId: me.workspaceId, name: data.name } },
+    },
+  });
+  revalidatePath("/", "layout");
+}
+
+export async function updateCategory(form: FormData) {
+  const me = await requireMember("OWNER");
+  const category = await ownCategory(form.get("id"), me.workspaceId);
+  const data = categorySchema.parse(Object.fromEntries(form));
+  await prisma.$transaction([
+    prisma.category.update({ where: { id: category.id }, data }),
+    prisma.channel.updateMany({ where: { categoryId: category.id }, data: { name: data.name } }),
+  ]);
+  revalidatePath("/", "layout");
+}
+
+// Swaps position with the neighbour above or below.
+export async function moveCategory(form: FormData) {
+  const me = await requireMember("OWNER");
+  const category = await ownCategory(form.get("id"), me.workspaceId);
+  const up = form.get("dir") === "up";
+  const neighbour = await prisma.category.findFirst({
+    where: { workspaceId: me.workspaceId, archivedAt: null, position: up ? { lt: category.position } : { gt: category.position } },
+    orderBy: { position: up ? "desc" : "asc" },
+  });
+  if (!neighbour) return;
+  await prisma.$transaction([
+    prisma.category.update({ where: { id: category.id }, data: { position: neighbour.position } }),
+    prisma.category.update({ where: { id: neighbour.id }, data: { position: category.position } }),
+  ]);
+  revalidatePath("/", "layout");
+}
+
+// Archive hides the board; tasks, history and the chat channel are kept.
+export async function setCategoryArchived(form: FormData) {
+  const me = await requireMember("OWNER");
+  const category = await ownCategory(form.get("id"), me.workspaceId);
+  await prisma.category.update({
+    where: { id: category.id },
+    data: { archivedAt: form.get("archived") === "1" ? new Date() : null },
+  });
+  revalidatePath("/", "layout");
+}
+
+// ── Account ───────────────────────────────────────────────
+
+const accountSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  current: z.string(),
+  next: z.string().optional(),
+});
+
+export async function updateAccount(_: string | undefined, form: FormData) {
+  const me = await requireMember();
+  const parsed = accountSchema.safeParse(Object.fromEntries(form));
+  if (!parsed.success) return "Please fill in your name.";
+  const { name, current, next } = parsed.data;
+
+  let passwordHash: string | undefined;
+  if (next) {
+    if (next.length < 8) return "New password must be at least 8 characters.";
+    if (!me.user.passwordHash || !(await bcrypt.compare(current, me.user.passwordHash))) return "Current password is wrong.";
+    passwordHash = await bcrypt.hash(next, 10);
+  }
+  await prisma.user.update({ where: { id: me.userId }, data: { name, ...(passwordHash && { passwordHash }) } });
+  revalidatePath("/", "layout");
+  return passwordHash ? "Saved. Your password was changed." : "Saved.";
 }

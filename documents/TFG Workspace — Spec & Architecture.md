@@ -39,7 +39,7 @@ Next.js 16 (App Router) + TypeScript + Prisma + self-hosted PostgreSQL (no manag
 
 &#91;embedded content: architecture · 4 services\]
 
-The browser talks HTTP to Next.js and WebSocket to the socket service; Next.js emits task and comment events to the socket service after each write. UI: Tailwind + shadcn/ui, Tiptap for rich text, dnd-kit for Kanban, TanStack Query for client cache, Resend for email.
+The browser talks HTTP to Next.js and WebSocket to the socket service; Next.js emits task and comment events to the socket service after each write. UI: Tailwind + shadcn/ui, Tiptap for rich text, dnd-kit for Kanban, TanStack Query for client cache, plain SMTP (Nodemailer) for email.
 
 ## Data model
 
@@ -100,7 +100,7 @@ REST route handlers under `app/api`, Server Actions for form mutations, and one 
 
 **Events:** `message:new`, `message:thread`, `typing`, `task:updated`, `comment:new`, `notification:new`, `presence`.
 
-The Socket.io server runs as a small Node service beside Next.js (Vercel can't hold websockets); Redis adapter if it ever scales past one instance.
+The Socket.io server runs as a small Node service beside Next.js on the same VPS (nginx routes /socket.io/ to it); Redis adapter if it ever scales past one instance. See documents/DEPLOY.md.
 
 ## Auto-loop leadership
 
@@ -147,7 +147,7 @@ Built in order; each phase ships when it works, no fixed dates.
 1. **Phase 1:** repo, Prisma schema, Auth.js, workspace + invites + roles, seed categories.
 2. **Phase 2:** tasks CRUD, list + Kanban views (dnd-kit), assignees, due dates, status.
 3. **Phase 3:** task detail, comments with @mentions (Tiptap), tags + filters, local-disk uploads.
-4. **Phase 4:** leadership auto-follow, category watchers, notification inbox, email digest (Resend).
+4. **Phase 4:** leadership auto-follow, category watchers, notification inbox, email digest (SMTP).
 5. **Phase 5:** chat: channels, threads, DMs, file sharing, unread counts, presence.
 6. **Phase 6:** activity log, QA pass, deploy (one VPS: Next.js + PostgreSQL + socket service + upload directory; Vercel is out because uploads need a persistent disk), onboarding the team.
 

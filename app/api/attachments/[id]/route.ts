@@ -15,13 +15,19 @@ export async function GET(_: Request, { params }: RouteContext<"/api/attachments
 
   const file = await prisma.attachment.findUnique({
     where: { id },
-    include: { task: true, comment: { include: { task: true } } },
+    include: {
+      task: true,
+      comment: { include: { task: true } },
+      message: { include: { channel: { include: { members: { where: { userId: session.user.id } } } } } },
+    },
   });
-  const workspaceId = file?.task?.workspaceId ?? file?.comment?.task.workspaceId;
+  const channel = file?.message?.channel;
+  const workspaceId = file?.task?.workspaceId ?? file?.comment?.task.workspaceId ?? channel?.workspaceId;
   if (!file || !workspaceId) return new Response("Not found", { status: 404 });
 
   const member = await prisma.member.findUnique({ where: { workspaceId_userId: { workspaceId, userId: session.user.id } } });
-  if (!member) return new Response("Not found", { status: 404 });
+  // DM files are only for the DM's members.
+  if (!member || (channel && channel.kind !== "PUBLIC" && channel.members.length === 0)) return new Response("Not found", { status: 404 });
 
   const full = filePath(file.key);
   const info = await stat(full).catch(() => null);

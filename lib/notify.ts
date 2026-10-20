@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/db";
+import { emit } from "@/lib/realtime";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 export type NotifyType = "task_created" | "comment" | "mention" | "status" | "due" | "completed";
@@ -23,6 +24,12 @@ export async function notifySubscribers(taskId: string, type: NotifyType, actorI
   });
   if (subs.length === 0) return;
   await db.notification.createMany({ data: subs.map((s) => ({ userId: s.userId, actorId, taskId, type })) });
+  await pushNotified(subs.map((s) => s.userId));
+}
+
+// Live inbox badge: tells each user's open tabs to refresh.
+export function pushNotified(userIds: string[]) {
+  return emit(userIds.map((id) => `user:${id}`), "notification:new", {});
 }
 
 // Status/due changes → which notifications a task update should send.

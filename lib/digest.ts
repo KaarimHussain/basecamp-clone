@@ -1,23 +1,9 @@
 import "server-only";
 import { prisma } from "@/lib/db";
 import { NOTIFY_TEXT } from "@/lib/notify";
+import { appUrl as getAppUrl, esc, sendMail } from "@/lib/mail";
 
 const DELAY_MS = 15 * 60 * 1000;
-
-const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-
-async function send(to: string, subject: string, html: string) {
-  if (!process.env.RESEND_API_KEY) {
-    console.log(`[digest] RESEND_API_KEY not set; would email ${to}: ${subject}`);
-    return;
-  }
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ from: process.env.EMAIL_FROM, to, subject, html }),
-  });
-  if (!res.ok) throw new Error(`Resend ${res.status}: ${await res.text()}`);
-}
 
 // Emails each user one summary of notifications that stayed unread for 15+ minutes.
 // Each notification is emailed at most once (emailedAt).
@@ -33,7 +19,7 @@ export async function sendDigests() {
   });
 
   const byUser = Map.groupBy(pending, (n) => n.userId);
-  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
   let sent = 0;
 
   for (const items of byUser.values()) {
@@ -49,7 +35,7 @@ export async function sendDigests() {
     });
     const { email, name } = items[0].user;
     try {
-      await send(
+      await sendMail(
         email,
         `${items.length} update${items.length > 1 ? "s" : ""} in TFG Workspace`,
         `<p>Hi ${esc(name)},</p><p>Here's what you missed:</p><ul>${lines.join("")}</ul><p><a href="${appUrl}/inbox">Open your inbox</a></p>`,

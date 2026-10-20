@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { isEmpty, richText } from "@/lib/rich-text";
 import { changeEvents, notifySubscribers } from "@/lib/notify";
+import { diffTask, logActivity } from "@/lib/activity";
 import { Prisma, type SubReason } from "@/app/generated/prisma/client";
 
 const STATUS = z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE"]);
@@ -46,7 +47,7 @@ async function ownTask(id: string, workspaceId: string) {
 export async function createTask(form: FormData) {
   const me = await requireMember();
   const categoryId = z.string().parse(form.get("categoryId"));
-  const category = await prisma.category.findFirst({ where: { id: categoryId, workspaceId: me.workspaceId } });
+  const category = await prisma.category.findFirst({ where: { id: categoryId, workspaceId: me.workspaceId, archivedAt: null } });
   if (!category) throw new Error("Category not found");
 
   const { assigneeIds, ...data } = readForm(form);
@@ -82,6 +83,7 @@ export async function createTask(form: FormData) {
       data: [...subs].map(([userId, reason]) => ({ taskId: task.id, userId, reason })),
       skipDuplicates: true,
     });
+    await logActivity(tx, task.id, me.userId, [{ action: "created" }]);
     await notifySubscribers(task.id, "task_created", me.userId, [], tx);
   });
 
@@ -95,6 +97,20 @@ export async function updateTask(form: FormData) {
   const assignees = await validAssignees(me.workspaceId, assigneeIds);
   const description = form.has("description") ? richText.parse(form.get("description")) : undefined;
   const tags = await validTags(me.workspaceId, form);
+
+  // Names for the activity diff, before and after.
+  const [oldAssignees, oldTags, people, tagRows] = await Promise.all([
+    prisma.taskAssignee.findMany({ where: { taskId: task.id }, select: { user: { select: { name: true } } } }),
+    prisma.taskTag.findMany({ where: { taskId: task.id }, select: { tag: { select: { name: true } } } }),
+    prisma.user.findMany({ where: { id: { in: assignees } }, select: { name: true } }),
+    prisma.tag.findMany({ where: { id: { in: tags.map((t) => t.id) } }, select: { name: true } }),
+  ]);
+  const changes = diffTask(
+    { ...task, assignees: oldAssignees.map((a) => a.user.name), tags: oldTags.map((t) => t.tag.name) },
+    { ...data, assignees: people.map((p) => p.name), tags: tagRows.map((t) => t.name) },
+  );
+  const newDescription = description && !isEmpty(description) ? description : null;
+  if (description && JSON.stringify(newDescription) !== JSON.stringify(task.description)) changes.push({ action: "description" });
 
   await prisma.$transaction([
     prisma.task.update({
@@ -114,6 +130,7 @@ export async function updateTask(form: FormData) {
       skipDuplicates: true,
     }),
   ]);
+  await logActivity(prisma, task.id, me.userId, changes);
   for (const type of changeEvents(task, data)) await notifySubscribers(task.id, type, me.userId);
 
   revalidatePath(`/c/${task.categoryId}`);
@@ -134,6 +151,7 @@ export async function moveTask(id: string, status: string) {
       completedAt: next === "DONE" ? new Date() : null,
     },
   });
+  await logActivity(prisma, id, me.userId, [{ action: "status", meta: { from: task.status, to: next } }]);
   for (const type of changeEvents(task, { status: next })) await notifySubscribers(id, type, me.userId);
   revalidatePath(`/c/${task.categoryId}`);
 }
@@ -174,6 +192,7 @@ export async function archiveTask(form: FormData) {
   const me = await requireMember();
   const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
   await prisma.task.update({ where: { id: task.id }, data: { archivedAt: new Date() } });
+  await logActivity(prisma, task.id, me.userId, [{ action: "archived" }]);
   revalidatePath(`/c/${task.categoryId}`);
   redirect(`/c/${task.categoryId}`);
 }

@@ -15,6 +15,6 @@ export async function requireMember(minRole: Role = "MEMBER") {
     include: { workspace: true, user: true },
   });
   if (!member) redirect("/login");
-  if (RANK[member.role] < RANK[minRole]) throw new Error("Forbidden");
+  if (RANK[member.role] < RANK[minRole]) redirect("/"); // works for pages and server actions alike
   return member;
 }

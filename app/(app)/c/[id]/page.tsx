@@ -67,6 +67,9 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
         </nav>
       </header>
 
+      {category.archivedAt ? (
+        <p className="mb-8 rounded border border-amber-500 p-3 text-sm">This category is archived. Its tasks are read-only history; an owner can restore it from Categories.</p>
+      ) : (
       <details className="mb-8 rounded border p-4">
         <summary className="cursor-pointer font-medium">New task</summary>
         <form action={createTask} className="mt-4 flex flex-col gap-3">
@@ -75,6 +78,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
           <button className="self-start rounded bg-black px-3 py-2 text-white dark:bg-white dark:text-black">Add task</button>
         </form>
       </details>
+      )}
 
       <form className="mb-4 flex flex-wrap items-center gap-2 text-sm">
         <input type="hidden" name="view" value={view} />

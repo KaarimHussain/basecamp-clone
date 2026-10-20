@@ -6,7 +6,8 @@ import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { isEmpty, mentionIds, richText } from "@/lib/rich-text";
 import { parseUploads } from "@/lib/storage";
-import { notifySubscribers } from "@/lib/notify";
+import { notifySubscribers, pushNotified } from "@/lib/notify";
+import { logActivity } from "@/lib/activity";
 import type { Prisma } from "@/app/generated/prisma/client";
 
 // Mentioned members follow the task and get a "mention" notification. Returns who was notified.
@@ -19,6 +20,7 @@ async function notifyMentions(tx: Prisma.TransactionClient, workspaceId: string,
     skipDuplicates: true,
   });
   await tx.notification.createMany({ data: targets.map((userId) => ({ userId, actorId: authorId, taskId, type: "mention" })) });
+  await pushNotified(targets);
   return targets;
 }
 
@@ -39,6 +41,7 @@ export async function addComment(form: FormData) {
     // Followers get "comment", except those who just got the more specific "mention".
     const mentioned = await notifyMentions(tx, me.workspaceId, taskId, me.userId, mentionIds(body));
     await notifySubscribers(taskId, "comment", me.userId, mentioned, tx);
+    await logActivity(tx, taskId, me.userId, [{ action: "commented" }]);
   });
   revalidatePath(`/t/${taskId}`);
 }
@@ -78,7 +81,9 @@ export async function addTaskFiles(form: FormData) {
   const task = await prisma.task.findFirst({ where: { id: taskId, workspaceId: me.workspaceId, archivedAt: null } });
   if (!task) throw new Error("Task not found");
   const uploads = parseUploads(form.get("uploads"), me.workspaceId);
+  if (uploads.length === 0) return;
   await prisma.attachment.createMany({ data: uploads.map((u) => ({ ...u, taskId })) });
+  await logActivity(prisma, taskId, me.userId, [{ action: "files", meta: { added: uploads.map((u) => u.name) } }]);
   revalidatePath(`/t/${taskId}`);
 }
 

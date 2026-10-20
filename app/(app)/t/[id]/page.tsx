@@ -6,6 +6,7 @@ import { requireMember } from "@/lib/session";
 import { archiveTask, followTask, setMuted, unfollowTask, updateTask } from "@/lib/tasks";
 import { addComment, addTaskFiles, createTag, deleteComment, editComment } from "@/lib/comments";
 import { renderRichText } from "@/lib/rich-text";
+import { activityText } from "@/lib/activity";
 import { TaskFields } from "@/app/task-fields";
 import RichEditor from "@/app/rich-editor";
 import Uploader from "@/app/uploader";
@@ -46,6 +47,7 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
         attachments: true,
         createdBy: { select: { name: true } },
         subscribers: { include: { user: { select: { name: true } } } },
+        activity: { include: { actor: { select: { name: true } } }, orderBy: { createdAt: "desc" }, take: 200 },
         comments: {
           orderBy: { createdAt: "asc" },
           include: { author: { select: { name: true } }, attachments: true },
@@ -157,6 +159,18 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
         </ol>
         <Composer action={addComment} users={users} hidden={{ taskId: task.id }} />
       </section>
+
+      <details className="mt-10">
+        <summary className="cursor-pointer font-semibold">Activity ({task.activity.length})</summary>
+        <ol className="mt-3 space-y-1 text-sm">
+          {task.activity.map((a) => (
+            <li key={a.id} className="text-zinc-600 dark:text-zinc-400">
+              <time className="mr-2 text-xs text-zinc-500">{fmt(a.createdAt)}</time>
+              <strong className="text-zinc-800 dark:text-zinc-200">{a.actor.name}</strong> {activityText(a.action, a.meta)}
+            </li>
+          ))}
+        </ol>
+      </details>
 
       <form action={archiveTask} className="mt-10 border-t pt-4">
         <input type="hidden" name="id" value={task.id} />
