@@ -196,3 +196,11 @@ export async function archiveTask(form: FormData) {
   revalidatePath(`/c/${task.categoryId}`);
   redirect(`/c/${task.categoryId}`);
 }
+
+// The round checkbox on a to-do: flips between Done and To do.
+export async function toggleDone(form: FormData) {
+  const me = await requireMember();
+  const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
+  await moveTask(task.id, task.status === "DONE" ? "TODO" : "DONE");
+  revalidatePath(`/t/${task.id}`);
+}

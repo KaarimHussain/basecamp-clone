@@ -1,25 +1,38 @@
 "use client";
 
 import { useActionState } from "react";
+import { Loader2 } from "lucide-react";
 import { updateAccount } from "@/lib/actions";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 
 export default function AccountForm({ name }: { name: string }) {
   const [message, action, pending] = useActionState(updateAccount, undefined);
   return (
-    <form action={action} className="flex flex-col gap-3">
-      <label className="flex flex-col gap-1 text-sm">
-        Name
-        <input name="name" defaultValue={name} required maxLength={80} className="rounded border px-3 py-2" />
-      </label>
-      <fieldset className="mt-2 flex flex-col gap-2 text-sm">
-        <legend className="mb-1 text-zinc-500">Change password (optional)</legend>
-        <input name="current" type="password" placeholder="Current password" aria-label="Current password" autoComplete="current-password" className="rounded border px-3 py-2" />
-        <input name="next" type="password" placeholder="New password (8+ chars)" aria-label="New password" minLength={8} autoComplete="new-password" className="rounded border px-3 py-2" />
+    <form action={action} className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor="name">Name</Label>
+        <Input id="name" name="name" defaultValue={name} required maxLength={80} />
+      </div>
+      <Separator />
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-1 text-sm font-semibold">Change password <span className="font-normal text-muted-foreground">(optional)</span></legend>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="current">Current password</Label>
+          <Input id="current" name="current" type="password" autoComplete="current-password" />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="next">New password</Label>
+          <Input id="next" name="next" type="password" minLength={8} autoComplete="new-password" placeholder="At least 8 characters" />
+        </div>
       </fieldset>
-      {message && <p role="status" className="text-sm">{message}</p>}
-      <button disabled={pending} className="rounded bg-black px-3 py-2 text-white disabled:opacity-50 dark:bg-white dark:text-black">
-        {pending ? "Saving…" : "Save"}
-      </button>
+      {message && <p role="status" className="rounded-md bg-secondary px-3 py-2 text-sm">{message}</p>}
+      <Button type="submit" disabled={pending}>
+        {pending && <Loader2 className="animate-spin" aria-hidden />}
+        {pending ? "Saving…" : "Save changes"}
+      </Button>
     </form>
   );
 }

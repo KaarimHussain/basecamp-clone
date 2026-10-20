@@ -3,11 +3,26 @@
 import { useId, useOptimistic, startTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { DndContext, PointerSensor, KeyboardSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { Flag, MessageSquare } from "lucide-react";
 import { moveTask } from "@/lib/tasks";
 import { PRIORITIES, STATUSES, TagChip } from "@/app/task-fields";
+import { AvatarStack } from "@/components/user-avatar";
+import { cn } from "@/lib/utils";
 
-type Row = { id: string; title: string; status: string; priority: number; dueAt: string | null; assignees: string[]; tags: { id: string; name: string; color: string }[] };
+export type Row = {
+  id: string;
+  title: string;
+  status: string;
+  priority: number;
+  due: { text: string; tone: "ok" | "warn" | "bad" } | null;
+  assignees: { id: string; name: string }[];
+  tags: { id: string; name: string; color: string }[];
+  comments: number;
+};
 
+const TONE = { ok: "text-muted-foreground", warn: "text-amber-600 dark:text-amber-400", bad: "text-destructive" };
+
+// Basecamp-style "card table": one column per status, drag cards between them.
 export default function Board({ tasks }: { tasks: Row[] }) {
   const [optimistic, move] = useOptimistic(tasks, (state, { id, status }: { id: string; status: string }) =>
     state.map((t) => (t.id === id ? { ...t, status } : t)),
@@ -29,11 +44,11 @@ export default function Board({ tasks }: { tasks: Row[] }) {
 
   return (
     <DndContext id={dndId} sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="-mx-2 grid gap-3 overflow-x-auto px-2 pb-2 md:grid-cols-4">
         {STATUSES.map((s) => {
           const col = optimistic.filter((t) => t.status === s.value);
           return (
-            <Column key={s.value} id={s.value} title={`${s.label} · ${col.length}`}>
+            <Column key={s.value} id={s.value} title={s.label} count={col.length} color={s.color}>
               {col.map((t) => <Card key={t.id} task={t} />)}
             </Column>
           );
@@ -43,12 +58,20 @@ export default function Board({ tasks }: { tasks: Row[] }) {
   );
 }
 
-function Column({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+function Column({ id, title, count, color, children }: { id: string; title: string; count: number; color: string; children: ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <section ref={setNodeRef} aria-label={title} className={`min-h-40 rounded p-3 ${isOver ? "bg-zinc-200" : "bg-zinc-100"} dark:bg-zinc-900`}>
-      <h2 className="mb-3 text-sm font-medium text-zinc-600">{title}</h2>
-      <div className="flex flex-col gap-2">{children}</div>
+    <section
+      ref={setNodeRef}
+      aria-label={`${title}, ${count} cards`}
+      className={cn("flex min-h-56 flex-col rounded-xl bg-secondary/70 p-2 transition-colors", isOver && "bg-accent ring-2 ring-primary/40")}
+    >
+      <h2 className="mb-2 flex items-center gap-2 px-1.5 pt-1 text-sm font-bold">
+        <span className="size-2.5 rounded-full" style={{ background: color }} aria-hidden />
+        {title}
+        <span className="ml-auto rounded-full bg-card px-2 text-xs font-semibold text-muted-foreground">{count}</span>
+      </h2>
+      <div className="flex flex-1 flex-col gap-2">{children}</div>
     </section>
   );
 }
@@ -60,15 +83,25 @@ function Card({ task }: { task: Row }) {
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px)` } : undefined}
-      className={`cursor-grab rounded border bg-white p-3 text-sm shadow-sm dark:bg-black ${isDragging ? "z-10 opacity-80" : ""}`}
+      style={transform ? { transform: `translate(${transform.x}px, ${transform.y}px) rotate(1.5deg)` } : undefined}
+      className={cn(
+        "cursor-grab rounded-lg border bg-card p-3 text-sm shadow-xs transition-shadow hover:shadow-md active:cursor-grabbing",
+        isDragging && "z-10 shadow-xl",
+      )}
     >
-      <Link href={`/t/${task.id}`} className="font-medium hover:underline">{task.title}</Link>
-      <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-500">
-        {task.priority > 0 && <span>{PRIORITIES[task.priority]}</span>}
-        {task.dueAt && <span>Due {task.dueAt}</span>}
-        {task.assignees.length > 0 && <span>{task.assignees.join(", ")}</span>}
-        {task.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}
+      {task.tags.length > 0 && <div className="mb-1.5 flex flex-wrap gap-1">{task.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}</div>}
+      <Link href={`/t/${task.id}`} className="font-semibold leading-snug hover:underline">{task.title}</Link>
+      <div className="mt-2 flex items-center gap-2 text-xs">
+        {task.priority > 0 && (
+          <span className={cn("inline-flex items-center gap-0.5 font-semibold", task.priority === 3 ? "text-destructive" : "text-muted-foreground")}>
+            <Flag className="size-3" aria-hidden />{PRIORITIES[task.priority]}
+          </span>
+        )}
+        {task.due && <span className={cn("font-medium", TONE[task.due.tone])}>{task.due.text}</span>}
+        {task.comments > 0 && (
+          <span className="inline-flex items-center gap-0.5 text-muted-foreground"><MessageSquare className="size-3" aria-hidden />{task.comments}</span>
+        )}
+        <span className="ml-auto"><AvatarStack people={task.assignees} max={3} /></span>
       </div>
     </article>
   );

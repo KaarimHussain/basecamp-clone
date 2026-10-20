@@ -2,14 +2,22 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { createChannel, openDm } from "@/lib/chat";
+import { Hash, Plus } from "lucide-react";
 import { PresenceDot } from "../realtime";
+import { UserAvatar } from "@/components/user-avatar";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import ActiveLink from "./active-link";
 
 export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
   const me = await requireMember();
   const [channels, members] = await Promise.all([
     prisma.channel.findMany({
-      where: { workspaceId: me.workspaceId, OR: [{ kind: "PUBLIC" }, { members: { some: { userId: me.userId } } }] },
+      where: {
+        workspaceId: me.workspaceId,
+        OR: [{ kind: "PUBLIC" }, { members: { some: { userId: me.userId } } }],
+        NOT: { category: { archivedAt: { not: null } } }, // archived category: hide its channel
+      },
       include: {
         members: { include: { user: { select: { name: true } } } },
         category: { select: { position: true } },
@@ -44,38 +52,44 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
   );
 
   const Badge = ({ n }: { n: number }) =>
-    n > 0 ? <span className="ml-auto rounded-full bg-red-600 px-1.5 text-xs text-white" aria-label={`${n} unread`}>{n}</span> : null;
+    n > 0 ? <span className="ml-auto rounded-full bg-highlight px-1.5 text-[11px] font-bold leading-5 text-black" aria-label={`${n} unread`}>{n}</span> : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col md:flex-row">
-      <aside className="border-b p-4 text-sm md:w-60 md:shrink-0 md:border-r md:border-b-0">
-        <h2 className="mb-2 font-semibold text-zinc-500">Channels</h2>
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 md:flex-row">
+      <aside className="rounded-2xl border bg-card p-3 text-sm shadow-paper md:sticky md:top-18 md:h-[calc(100dvh-5.5rem)] md:w-64 md:shrink-0 md:overflow-y-auto">
+        <h2 className="mb-1 px-2 pt-1 text-xs font-bold tracking-wide text-muted-foreground uppercase">Channels</h2>
         <ul className="mb-3 space-y-0.5">
           {publicChannels.map((c) => (
             <li key={c.id}>
               <ActiveLink href={`/chat/${c.id}`}>
-                <span># {c.name}</span>
+                <Hash className="size-4 text-muted-foreground" aria-hidden />
+                <span className="truncate">{c.name}</span>
                 <Badge n={unread.get(c.id) ?? 0} />
               </ActiveLink>
             </li>
           ))}
         </ul>
-        <details className="mb-6">
-          <summary className="cursor-pointer text-zinc-500">+ New channel</summary>
+        <details className="group mb-5 px-2">
+          <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            <Plus className="size-3.5" aria-hidden /> New channel
+          </summary>
           <form action={createChannel} className="mt-2 flex gap-1">
-            <input name="name" required maxLength={40} placeholder="name" aria-label="Channel name" className="w-full rounded border px-2 py-1" />
-            <button className="underline">Add</button>
+            <Input name="name" required maxLength={40} placeholder="channel-name" aria-label="Channel name" className="h-8" />
+            <Button type="submit" size="sm" variant="outline">Add</Button>
           </form>
         </details>
 
-        <h2 className="mb-2 font-semibold text-zinc-500">Direct messages</h2>
+        <h2 className="mb-1 px-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">Direct messages</h2>
         <ul className="space-y-0.5">
           {members.map((m) => {
             const dm = dmByUser.get(m.userId);
             const label = (
               <>
-                <PresenceDot userId={m.userId} />
-                <span>{m.user.name}</span>
+                <span className="relative">
+                  <UserAvatar id={m.userId} name={m.user.name} size="sm" />
+                  <span className="absolute -right-0.5 -bottom-0.5 rounded-full bg-card p-px"><PresenceDot userId={m.userId} /></span>
+                </span>
+                <span className="truncate">{m.user.name}</span>
                 {dm && <Badge n={unread.get(dm.id) ?? 0} />}
               </>
             );
@@ -86,16 +100,16 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
                 ) : (
                   <form action={openDm}>
                     <input type="hidden" name="userId" value={m.userId} />
-                    <button className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-zinc-100 dark:hover:bg-zinc-900">{label}</button>
+                    <button className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-secondary">{label}</button>
                   </form>
                 )}
               </li>
             );
           })}
-          {members.length === 0 && <li className="text-zinc-500">No one else yet. <Link href="/members" className="underline">Invite</Link></li>}
+          {members.length === 0 && <li className="px-2 text-muted-foreground">No one else yet. <Link href="/members" className="underline">Invite</Link></li>}
         </ul>
       </aside>
-      <section className="flex min-w-0 flex-1 flex-col">{children}</section>
+      <section className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border bg-card shadow-paper">{children}</section>
     </div>
   );
 }

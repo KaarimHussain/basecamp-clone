@@ -1,14 +1,20 @@
 import { requireMember } from "@/lib/session";
+import { PageContainer, PageHeader, Paper } from "@/components/page";
+import { UserAvatar } from "@/components/user-avatar";
 import AccountForm from "./account-form";
+
+export const metadata = { title: "Your profile" };
 
 export default async function AccountPage() {
   const me = await requireMember();
   return (
-    <main className="mx-auto w-full max-w-sm px-4 py-10">
-      <h1 className="mb-1 text-2xl font-semibold">Account</h1>
-      <p className="mb-6 text-sm text-zinc-500">{me.user.email}</p>
-      <AccountForm name={me.user.name} />
-    </main>
+    <PageContainer size="narrow" className="max-w-md">
+      <div className="mb-4 flex justify-center"><UserAvatar id={me.userId} name={me.user.name} size="lg" className="size-16 text-xl" /></div>
+      <PageHeader title={me.user.name} subtitle={`${me.user.email} · ${me.role.toLowerCase()}`} />
+      <Paper className="p-6">
+        <AccountForm name={me.user.name} />
+      </Paper>
+    </PageContainer>
   );
 }
 

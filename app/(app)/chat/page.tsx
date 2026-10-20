@@ -8,7 +8,7 @@ export default async function ChatIndex() {
   const channel =
     (await prisma.channel.findFirst({ where: { workspaceId: me.workspaceId, kind: "PUBLIC", name: "General" } })) ??
     (await prisma.channel.findFirst({ where: { workspaceId: me.workspaceId, kind: "PUBLIC" } }));
-  if (!channel) return <p className="p-6 text-zinc-500">No channels yet.</p>;
+  if (!channel) return <p className="p-6 text-muted-foreground">No channels yet.</p>;
   redirect(`/chat/${channel.id}`);
 }
 

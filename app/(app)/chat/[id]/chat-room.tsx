@@ -6,7 +6,15 @@ import { useRouter } from "next/navigation";
 import { loadMessages, markRead, sendMessage } from "@/lib/chat";
 import type { ChatMessage } from "@/lib/chat-data";
 import Uploader from "@/app/uploader";
+import { Hash, MessageSquareReply, Send, X } from "lucide-react";
 import { useRealtime } from "../../realtime";
+import { UserAvatar } from "@/components/user-avatar";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+// Consecutive messages from the same person within 5 minutes collapse under one avatar.
+const continues = (prev: ChatMessage | undefined, m: ChatMessage) =>
+  !!prev && prev.authorId === m.authorId && new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
 
 const PAGE = 50;
 const addUnique = (list: ChatMessage[], m: ChatMessage) => (list.some((x) => x.id === m.id) ? list : [...list, m]);
@@ -75,28 +83,46 @@ export default function ChatRoom({ channelId, title, meId, names, initial, threa
   const typers = Object.keys(typing).map((uid) => names[uid] ?? "Someone");
 
   return (
-    <div className="flex h-[calc(100dvh-3.25rem)] min-h-96">
+    <div className="flex h-[calc(100dvh-5.5rem)] min-h-96">
       <div className="flex min-w-0 flex-1 flex-col">
-        <h1 className="border-b px-4 py-3 font-semibold">{title}</h1>
-        <ol className="flex-1 space-y-3 overflow-y-auto px-4 py-3" aria-live="polite">
+        <h1 className="flex items-center gap-2 border-b px-5 py-3.5 text-lg font-bold">
+          {title.startsWith("# ") ? <><Hash className="size-5 text-muted-foreground" aria-hidden />{title.slice(2)}</> : title}
+        </h1>
+        <ol className="flex-1 overflow-y-auto px-3 py-4" aria-live="polite">
           {hasOlder && (
-            <li className="text-center">
-              <button onClick={older} className="text-sm underline">Load older messages</button>
+            <li className="mb-3 text-center">
+              <Button variant="outline" size="sm" onClick={older}>Load older messages</Button>
             </li>
           )}
-          {messages.length === 0 && <li className="text-zinc-500">No messages yet. Say hi.</li>}
-          {messages.map((m) => (
-            <li key={m.id}>
-              <Message m={m} />
-              <Link href={`?thread=${m.id}`} scroll={false} className="ml-0 text-xs text-zinc-500 underline">
-                {m.replyCount > 0 ? `${m.replyCount} repl${m.replyCount === 1 ? "y" : "ies"}` : "Reply in thread"}
-              </Link>
+          {messages.length === 0 && (
+            <li className="flex h-full flex-col items-center justify-center gap-1 text-center text-muted-foreground">
+              <span className="text-4xl" aria-hidden>🔥</span>
+              <p className="font-semibold text-foreground">The campfire is lit</p>
+              <p className="text-sm">No messages yet. Say hi!</p>
+            </li>
+          )}
+          {messages.map((m, i) => (
+            <li key={m.id} className="group relative rounded-lg px-2 py-0.5 hover:bg-secondary/50">
+              <Message m={m} compact={continues(messages[i - 1], m)} />
+              <div className={cn("pl-12", m.replyCount === 0 && "absolute top-1 right-2 hidden pl-0 group-focus-within:block group-hover:block")}>
+                <Link
+                  href={`?thread=${m.id}`}
+                  scroll={false}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-md text-xs font-medium",
+                    m.replyCount > 0 ? "mt-1 mb-1 text-primary hover:underline" : "border bg-card px-2 py-1 text-muted-foreground shadow-xs hover:text-foreground",
+                  )}
+                >
+                  <MessageSquareReply className="size-3.5" aria-hidden />
+                  {m.replyCount > 0 ? `${m.replyCount} repl${m.replyCount === 1 ? "y" : "ies"}` : "Reply"}
+                </Link>
+              </div>
             </li>
           ))}
           <li ref={endRef} aria-hidden />
         </ol>
-        <p className="h-5 px-4 text-xs text-zinc-500">{typers.length > 0 && `${typers.join(", ")} ${typers.length > 1 ? "are" : "is"} typing…`}</p>
-        <Composer channelId={channelId} onSent={(m) => setMessages((list) => addUnique(list, m))} placeholder={`Message ${title}`} />
+        <p className="h-5 px-5 text-xs text-muted-foreground italic">{typers.length > 0 && `${typers.join(", ")} ${typers.length > 1 ? "are" : "is"} typing…`}</p>
+        <Composer channelId={channelId} onSent={(m) => setMessages((list) => addUnique(list, m))} placeholder={`Message ${title.replace("# ", "#")}`} />
       </div>
       {thread && <Thread key={thread.parent.id} channelId={channelId} {...thread} />}
     </div>
@@ -119,46 +145,61 @@ function Thread({ channelId, parent, replies: initial }: { channelId: string; pa
   }, [socket, parent.id]);
 
   return (
-    <aside aria-label="Thread" className="fixed inset-0 z-20 flex flex-col bg-white md:static md:w-80 md:border-l dark:bg-zinc-950">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <h2 className="font-semibold">Thread</h2>
-        <Link href="?" scroll={false} className="text-sm underline">Close</Link>
+    <aside aria-label="Thread" className="fixed inset-0 z-40 flex flex-col bg-card md:static md:z-auto md:w-96 md:border-l">
+      <header className="flex items-center justify-between border-b px-4 py-3.5">
+        <h2 className="font-bold">Thread</h2>
+        <Link href="?" scroll={false} aria-label="Close thread" className="grid size-8 place-items-center rounded-md hover:bg-secondary"><X className="size-4" /></Link>
       </header>
-      <ol className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
-        <li className="border-b pb-3"><Message m={parent} /></li>
-        {replies.map((m) => <li key={m.id}><Message m={m} /></li>)}
+      <ol className="flex-1 overflow-y-auto px-3 py-4">
+        <li className="mb-3 border-b px-2 pb-3"><Message m={parent} /></li>
+        {replies.length > 0 && <li className="mb-2 px-2 text-xs font-semibold text-muted-foreground">{replies.length} repl{replies.length === 1 ? "y" : "ies"}</li>}
+        {replies.map((m, i) => <li key={m.id} className="rounded-lg px-2 py-0.5 hover:bg-secondary/50"><Message m={m} compact={continues(replies[i - 1], m)} /></li>)}
       </ol>
       <Composer channelId={channelId} parentId={parent.id} onSent={(m) => setReplies((list) => addUnique(list, m))} placeholder="Reply…" />
     </aside>
   );
 }
 
-function Message({ m }: { m: ChatMessage }) {
+function Message({ m, compact }: { m: ChatMessage; compact?: boolean }) {
+  const time = new Date(m.createdAt);
   return (
-    <article className="text-sm">
-      <div className="text-xs text-zinc-500">
-        <strong className="text-zinc-800 dark:text-zinc-200">{m.authorName}</strong>{" "}
-        <time dateTime={m.createdAt} suppressHydrationWarning>
-          {new Date(m.createdAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
-        </time>
+    <article className={cn("flex gap-3 text-[15px]", !compact && "mt-2")}>
+      <div className="w-9 shrink-0">
+        {compact ? (
+          <time dateTime={m.createdAt} suppressHydrationWarning className="hidden pt-1 text-[10px] text-muted-foreground group-hover:block">
+            {time.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          </time>
+        ) : (
+          <UserAvatar id={m.authorId} name={m.authorName} />
+        )}
       </div>
-      {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
-      {m.attachments.length > 0 && (
-        <ul className="mt-1 flex flex-wrap gap-2">
-          {m.attachments.map((f) => (
-            <li key={f.id}>
-              <a href={`/api/attachments/${f.id}`} target="_blank" rel="noopener" className="block rounded border px-2 py-1">
-                {f.mime.startsWith("image/") ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- auth-checked file route
-                  <img src={`/api/attachments/${f.id}`} alt={f.name} className="max-h-40 max-w-60 object-contain" />
-                ) : (
-                  <>📎 {f.name}</>
-                )}
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="min-w-0 flex-1">
+        {!compact && (
+          <div className="flex items-baseline gap-2">
+            <strong className="text-sm">{m.authorName}</strong>
+            <time dateTime={m.createdAt} suppressHydrationWarning className="text-xs text-muted-foreground">
+              {time.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </time>
+          </div>
+        )}
+        {m.text && <p className="leading-relaxed break-words whitespace-pre-wrap">{m.text}</p>}
+        {m.attachments.length > 0 && (
+          <ul className="mt-1.5 flex flex-wrap gap-2">
+            {m.attachments.map((f) => (
+              <li key={f.id}>
+                <a href={`/api/attachments/${f.id}`} target="_blank" rel="noopener" className="block overflow-hidden rounded-lg border bg-card text-sm shadow-xs transition hover:shadow-md">
+                  {f.mime.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- auth-checked file route
+                    <img src={`/api/attachments/${f.id}`} alt={f.name} className="max-h-48 min-h-16 max-w-72 min-w-16 bg-muted object-cover" />
+                  ) : (
+                    <span className="flex items-center gap-2 px-3 py-2 font-medium">📎 {f.name}</span>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </article>
   );
 }
@@ -183,7 +224,7 @@ function Composer({ channelId, parentId, onSent, placeholder }: {
         if (m) onSent(m);
         setKey((k) => k + 1);
       }}
-      className="flex flex-col gap-1 border-t p-3"
+      className="flex flex-col gap-1.5 border-t bg-card p-3"
     >
       <input type="hidden" name="channelId" value={channelId} />
       {parentId && <input type="hidden" name="parentId" value={parentId} />}
@@ -194,7 +235,7 @@ function Composer({ channelId, parentId, onSent, placeholder }: {
         placeholder={placeholder}
         aria-label={placeholder}
         autoFocus
-        className="w-full resize-none rounded border px-3 py-2 text-sm"
+        className="w-full resize-none rounded-xl border border-input bg-background px-3.5 py-2.5 text-[15px] shadow-xs outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         onChange={() => {
           if (Date.now() - lastTyping.current > 2000) {
             lastTyping.current = Date.now();
@@ -211,7 +252,7 @@ function Composer({ channelId, parentId, onSent, placeholder }: {
       />
       <div className="flex items-center justify-between">
         <Uploader />
-        <button className="rounded bg-black px-3 py-1 text-sm text-white dark:bg-white dark:text-black">Send</button>
+        <Button type="submit" size="sm"><Send /> Send</Button>
       </div>
     </form>
   );

@@ -41,7 +41,7 @@ export function PresenceDot({ userId }: { userId: string }) {
     <span
       title={on ? "Online" : "Offline"}
       aria-label={on ? "online" : "offline"}
-      className={`inline-block h-2 w-2 shrink-0 rounded-full ${on ? "bg-green-500" : "border border-zinc-400"}`}
+      className={`inline-block h-2 w-2 shrink-0 rounded-full ${on ? "bg-green-500" : "border border-muted-foreground/60 bg-card"}`}
     />
   );
 }

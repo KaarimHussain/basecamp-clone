@@ -1,23 +1,30 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { AuthShell } from "@/components/auth-shell";
+import { buttonVariants } from "@/components/ui/button";
 import AcceptForm from "./accept-form";
+
+export const metadata = { title: "Join" };
 
 export default async function InvitePage({ params }: PageProps<"/invite/[token]">) {
   const { token } = await params;
-  const invite = await prisma.invite.findUnique({ where: { token }, include: { workspace: true } });
+  const invite = await prisma.invite.findUnique({ where: { token }, include: { workspace: true, invitedBy: { select: { name: true } } } });
   const valid = invite && !invite.acceptedAt && invite.expiresAt > new Date();
 
+  if (!valid) {
+    return (
+      <AuthShell title="This invite has expired" subtitle="Ask whoever invited you to send a fresh link.">
+        <Link href="/login" className={buttonVariants({ variant: "outline", className: "w-full" })}>Go to sign in</Link>
+      </AuthShell>
+    );
+  }
   return (
-    <main className="mx-auto mt-24 w-full max-w-sm px-4">
-      {valid ? (
-        <>
-          <h1 className="mb-2 text-2xl font-semibold">Join {invite.workspace.name}</h1>
-          <p className="mb-6 text-sm text-zinc-500">{invite.email}</p>
-          <AcceptForm token={token} />
-        </>
-      ) : (
-        <h1 className="text-xl font-semibold">This invite is invalid or expired.</h1>
-      )}
-    </main>
+    <AuthShell
+      title={`Join ${invite.workspace.name}`}
+      subtitle={<>{invite.invitedBy.name} invited <strong className="text-foreground">{invite.email}</strong>{invite.role === "LEADERSHIP" && " as leadership"}.</>}
+    >
+      <AcceptForm token={token} />
+    </AuthShell>
   );
 }
 

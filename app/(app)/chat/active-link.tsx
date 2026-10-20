@@ -10,7 +10,7 @@ export default function ActiveLink({ href, children }: { href: string; children:
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center gap-2 rounded px-2 py-1 ${active ? "bg-zinc-200 font-medium dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-900"}`}
+      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${active ? "bg-secondary font-semibold text-foreground" : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground"}`}
     >
       {children}
     </Link>

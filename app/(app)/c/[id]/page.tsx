@@ -1,14 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Archive, Flag, KanbanSquare, ListChecks, Plus, SlidersHorizontal } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
-import { createTask } from "@/lib/tasks";
-import { PRIORITIES, STATUSES, TagChip, TaskFields } from "@/app/task-fields";
-import Board from "./board";
+import { createTask, toggleDone } from "@/lib/tasks";
+import { dueLabel } from "@/lib/format";
+import { PRIORITIES, STATUSES, StatusDot, TagChip, TaskFields, selectClass } from "@/app/task-fields";
+import { AvatarStack } from "@/components/user-avatar";
+import { Breadcrumb, EmptyState, PageContainer, Paper } from "@/components/page";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import Board, { type Row } from "./board";
 
 // Query string from the defined entries only, so filters survive a view switch.
 const qs = (p: Record<string, string | undefined>) =>
   `?${new URLSearchParams(Object.entries(p).filter((e): e is [string, string] => !!e[1]))}`;
+
+const TONE = { ok: "text-muted-foreground", warn: "text-amber-600 dark:text-amber-400", bad: "text-destructive" };
+
+export async function generateMetadata({ params }: PageProps<"/c/[id]">) {
+  const category = await prisma.category.findUnique({ where: { id: (await params).id }, select: { name: true } });
+  return { title: category?.name ?? "Category" };
+}
 
 export default async function CategoryPage({ params, searchParams }: PageProps<"/c/[id]">) {
   const me = await requireMember();
@@ -31,8 +44,9 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
         ...(filter.assignee && { assignees: { some: { userId: filter.assignee } } }),
       },
       include: {
-        assignees: { include: { user: { select: { name: true } } } },
+        assignees: { include: { user: { select: { id: true, name: true } } } },
         tags: { include: { tag: true } },
+        _count: { select: { comments: true } },
       },
       orderBy: { position: "asc" },
     }),
@@ -41,91 +55,155 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
   ]);
   if (!category) notFound();
 
-  const rows = tasks.map((t) => ({
+  const rows: Row[] = tasks.map((t) => ({
     id: t.id,
     title: t.title,
     status: t.status,
     priority: t.priority,
-    dueAt: t.dueAt?.toISOString().slice(0, 10) ?? null,
-    assignees: t.assignees.map((a) => a.user.name),
+    due: t.dueAt && t.status !== "DONE" ? dueLabel(t.dueAt) : null,
+    assignees: t.assignees.map((a) => a.user),
     tags: t.tags.map(({ tag }) => ({ id: tag.id, name: tag.name, color: tag.color })),
+    comments: t._count.comments,
   }));
   const filtered = Object.values(filter).some(Boolean);
+  const open = rows.filter((r) => r.status !== "DONE");
+  const done = rows.filter((r) => r.status === "DONE");
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-10">
-      <Link href="/" className="text-sm underline">← All categories</Link>
-      <header className="my-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold" style={{ color: category.color }}>{category.name}</h1>
-        <nav className="flex gap-1 text-sm">
-          {(["list", "board"] as const).map((v) => (
-            <Link key={v} href={qs({ ...filter, view: v })} aria-current={view === v ? "page" : undefined}
-              className={`rounded px-3 py-1 capitalize ${view === v ? "bg-black text-white dark:bg-white dark:text-black" : "border"}`}>
-              {v}
-            </Link>
-          ))}
-        </nav>
-      </header>
+    <PageContainer size={view === "board" ? "wide" : "default"}>
+      <Breadcrumb href="/">Home</Breadcrumb>
 
-      {category.archivedAt ? (
-        <p className="mb-8 rounded border border-amber-500 p-3 text-sm">This category is archived. Its tasks are read-only history; an owner can restore it from Categories.</p>
-      ) : (
-      <details className="mb-8 rounded border p-4">
-        <summary className="cursor-pointer font-medium">New task</summary>
-        <form action={createTask} className="mt-4 flex flex-col gap-3">
-          <input type="hidden" name="categoryId" value={category.id} />
-          <TaskFields members={members} tags={tags} />
-          <button className="self-start rounded bg-black px-3 py-2 text-white dark:bg-white dark:text-black">Add task</button>
-        </form>
-      </details>
-      )}
+      <Paper className="overflow-hidden">
+        <div className="h-2" style={{ background: category.color }} />
+        <div className="px-5 pt-8 pb-6 sm:px-10">
+          <header className="mb-6 flex flex-col items-center gap-4 text-center">
+            <h1 className="text-3xl font-extrabold sm:text-4xl">{category.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {open.length} open · {done.length} done{filtered && " (filtered)"}
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <div role="tablist" aria-label="View" className="inline-flex rounded-full border bg-secondary p-0.5">
+                {([["list", "To-dos", ListChecks], ["board", "Card table", KanbanSquare]] as const).map(([v, label, Icon]) => (
+                  <Link
+                    key={v}
+                    role="tab"
+                    aria-selected={view === v}
+                    href={qs({ ...filter, view: v })}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium text-muted-foreground transition-colors",
+                      view === v && "bg-card text-foreground shadow-xs",
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden /> {label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </header>
 
-      <form className="mb-4 flex flex-wrap items-center gap-2 text-sm">
-        <input type="hidden" name="view" value={view} />
-        <select name="tag" defaultValue={filter.tag ?? ""} aria-label="Filter by tag" className="rounded border px-2 py-1">
-          <option value="">All tags</option>
-          {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-        {view === "list" && (
-          <select name="status" defaultValue={filter.status ?? ""} aria-label="Filter by status" className="rounded border px-2 py-1">
-            <option value="">All statuses</option>
-            {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-          </select>
-        )}
-        <select name="assignee" defaultValue={filter.assignee ?? ""} aria-label="Filter by assignee" className="rounded border px-2 py-1">
-          <option value="">Anyone</option>
-          {members.map((m) => <option key={m.userId} value={m.userId}>{m.user.name}</option>)}
-        </select>
-        <button className="rounded border px-2 py-1">Filter</button>
-        {filtered && <Link href={`?view=${view}`} className="underline">Clear</Link>}
-      </form>
+          {category.archivedAt ? (
+            <p className="mb-6 flex items-center justify-center gap-2 rounded-lg bg-accent px-4 py-3 text-sm text-accent-foreground">
+              <Archive className="size-4" aria-hidden /> This category is archived. Its to-dos are read-only history; an owner can restore it from Categories.
+            </p>
+          ) : (
+            <details className="group mb-6 rounded-xl border border-transparent open:border-border open:bg-card open:shadow-xs">
+              <summary className={cn(buttonVariants(), "cursor-pointer list-none group-open:hidden")}>
+                <Plus /> Add a to-do
+              </summary>
+              <form action={createTask} className="flex flex-col gap-4 p-4 sm:p-5">
+                <input type="hidden" name="categoryId" value={category.id} />
+                <TaskFields members={members} tags={tags} autoFocus />
+                <div className="flex gap-2">
+                  <Button type="submit">Add this to-do</Button>
+                </div>
+              </form>
+            </details>
+          )}
 
-      {view === "board" ? (
-        <Board tasks={rows} />
-      ) : rows.length === 0 ? (
-        <p className="text-zinc-500">{filtered ? "No tasks match these filters." : "No tasks yet."}</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-zinc-500">
-              <tr><th className="py-2">Task</th><th>Tags</th><th>Status</th><th>Priority</th><th>Due</th><th>Assignees</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((t) => (
-                <tr key={t.id} className="border-t">
-                  <td className="py-2"><Link href={`/t/${t.id}`} className="underline">{t.title}</Link></td>
-                  <td><span className="flex flex-wrap gap-1">{t.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}</span></td>
-                  <td>{STATUSES.find((s) => s.value === t.status)?.label}</td>
-                  <td>{PRIORITIES[t.priority]}</td>
-                  <td>{t.dueAt ?? "—"}</td>
-                  <td>{t.assignees.join(", ") || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <form className="mb-6 flex flex-wrap items-center gap-2 text-sm">
+            <SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden />
+            <input type="hidden" name="view" value={view} />
+            <select name="tag" defaultValue={filter.tag ?? ""} aria-label="Filter by tag" className={selectClass}>
+              <option value="">All tags</option>
+              {tags.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            {view === "list" && (
+              <select name="status" defaultValue={filter.status ?? ""} aria-label="Filter by status" className={selectClass}>
+                <option value="">Any status</option>
+                {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            )}
+            <select name="assignee" defaultValue={filter.assignee ?? ""} aria-label="Filter by assignee" className={selectClass}>
+              <option value="">Anyone</option>
+              {members.map((m) => <option key={m.userId} value={m.userId}>{m.user.name}</option>)}
+            </select>
+            <Button type="submit" variant="outline" size="sm">Apply</Button>
+            {filtered && <Link href={qs({ view })} className={buttonVariants({ variant: "ghost", size: "sm" })}>Clear</Link>}
+          </form>
+
+          {view === "board" ? (
+            <Board tasks={rows} />
+          ) : rows.length === 0 ? (
+            <EmptyState icon={<ListChecks />} title={filtered ? "No to-dos match these filters" : "No to-dos yet"}>
+              {!filtered && "Add the first one above."}
+            </EmptyState>
+          ) : (
+            <div className="flex flex-col gap-8">
+              {open.length > 0 && <TodoList rows={open} />}
+              {done.length > 0 && (
+                <section>
+                  <h2 className="mb-2 text-sm font-semibold tracking-wide text-muted-foreground uppercase">Completed</h2>
+                  <TodoList rows={done} />
+                </section>
+              )}
+            </div>
+          )}
         </div>
-      )}
-    </main>
+      </Paper>
+    </PageContainer>
+  );
+}
+
+function TodoList({ rows }: { rows: Row[] }) {
+  return (
+    <ul className="divide-y">
+      {rows.map((t) => {
+        const isDone = t.status === "DONE";
+        return (
+          <li key={t.id} className="group flex items-start gap-3 py-3">
+            <form action={toggleDone} className="pt-0.5">
+              <input type="hidden" name="id" value={t.id} />
+              <button
+                aria-label={isDone ? `Mark “${t.title}” as not done` : `Complete “${t.title}”`}
+                className={cn(
+                  "grid size-5 place-items-center rounded-full border-2 transition-colors",
+                  isDone ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/50 hover:border-primary hover:bg-primary/10",
+                )}
+              >
+                {isDone && <svg viewBox="0 0 16 16" className="size-3" aria-hidden><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+              </button>
+            </form>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Link href={`/t/${t.id}`} className={cn("font-medium hover:underline", isDone && "text-muted-foreground line-through")}>{t.title}</Link>
+                {t.priority > 0 && !isDone && (
+                  <span className={cn("inline-flex items-center gap-0.5 text-xs font-semibold", t.priority === 3 ? "text-destructive" : "text-muted-foreground")}>
+                    <Flag className="size-3" aria-hidden />{PRIORITIES[t.priority]}
+                  </span>
+                )}
+                {t.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                {!isDone && t.status !== "TODO" && <StatusDot status={t.status} />}
+                {t.due && <span className={cn("font-medium", TONE[t.due.tone])}>{t.due.text}</span>}
+                {t.comments > 0 && <span className="text-muted-foreground">{t.comments} comment{t.comments > 1 && "s"}</span>}
+              </div>
+            </div>
+            <AvatarStack people={t.assignees} max={3} />
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
