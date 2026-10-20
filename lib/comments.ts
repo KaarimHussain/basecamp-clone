@@ -6,23 +6,8 @@ import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { isEmpty, mentionIds, richText } from "@/lib/rich-text";
 import { parseUploads } from "@/lib/storage";
-import { notifySubscribers, pushNotified } from "@/lib/notify";
+import { notifyMentions, notifySubscribers, pushTaskChanged } from "@/lib/notify";
 import { logActivity } from "@/lib/activity";
-import type { Prisma } from "@/app/generated/prisma/client";
-
-// Mentioned members follow the task and get a "mention" notification. Returns who was notified.
-async function notifyMentions(tx: Prisma.TransactionClient, workspaceId: string, taskId: string, authorId: string, ids: string[]) {
-  const members = await tx.member.findMany({ where: { workspaceId, userId: { in: ids } }, select: { userId: true } });
-  const targets = members.map((m) => m.userId).filter((id) => id !== authorId);
-  if (targets.length === 0) return [];
-  await tx.taskSubscriber.createMany({
-    data: targets.map((userId) => ({ taskId, userId, reason: "MENTION" as const })),
-    skipDuplicates: true,
-  });
-  await tx.notification.createMany({ data: targets.map((userId) => ({ userId, actorId: authorId, taskId, type: "mention" })) });
-  await pushNotified(targets);
-  return targets;
-}
 
 export async function addComment(form: FormData) {
   const me = await requireMember();
@@ -43,6 +28,7 @@ export async function addComment(form: FormData) {
     await notifySubscribers(taskId, "comment", me.userId, mentioned, tx);
     await logActivity(tx, taskId, me.userId, [{ action: "commented" }]);
   });
+  await pushTaskChanged(me.workspaceId, task, me.userId);
   revalidatePath(`/t/${taskId}`);
 }
 
@@ -84,6 +70,7 @@ export async function addTaskFiles(form: FormData) {
   if (uploads.length === 0) return;
   await prisma.attachment.createMany({ data: uploads.map((u) => ({ ...u, taskId })) });
   await logActivity(prisma, taskId, me.userId, [{ action: "files", meta: { added: uploads.map((u) => u.name) } }]);
+  await pushTaskChanged(me.workspaceId, task, me.userId);
   revalidatePath(`/t/${taskId}`);
 }
 

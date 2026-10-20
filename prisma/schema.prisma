@@ -29,6 +29,7 @@ model User {
   notificationsSent Notification[]    @relation("NotificationActor")
   activity          Activity[]
   invitesSent       Invite[]
+  authTokens        AuthToken[]
 }
 
 model Workspace {
@@ -76,6 +77,26 @@ model Invite {
   invitedBy User      @relation(fields: [invitedById], references: [id])
 
   @@index([workspaceId, email])
+}
+
+// One-time links: password reset and magic sign-in. Only the SHA-256 of the token is stored.
+enum AuthTokenKind {
+  RESET
+  MAGIC
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  userId    String
+  kind      AuthTokenKind
+  tokenHash String        @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
 }
 
 // ── Categories & tasks ────────────────────────────────────

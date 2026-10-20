@@ -9,8 +9,16 @@ import { requireMember } from "@/lib/session";
 // Marks one notification read and jumps to its task.
 export async function openNotification(form: FormData) {
   const me = await requireMember();
-  const n = await prisma.notification.findFirst({ where: { id: z.string().parse(form.get("id")), userId: me.userId } });
+  const n = await prisma.notification.findFirst({
+    where: { id: z.string().parse(form.get("id")), userId: me.userId },
+    include: { message: { select: { channelId: true } } },
+  });
   if (!n) return;
+  if (n.message) {
+    await prisma.notification.updateMany({ where: { userId: me.userId, readAt: null, message: { channelId: n.message.channelId } }, data: { readAt: new Date() } });
+    revalidatePath("/", "layout");
+    redirect(`/chat/${n.message.channelId}`);
+  }
   // Opening one clears every unread notification for the same task.
   await prisma.notification.updateMany({
     where: { userId: me.userId, readAt: null, ...(n.taskId ? { taskId: n.taskId } : { id: n.id }) },

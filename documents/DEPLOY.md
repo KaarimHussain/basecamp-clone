@@ -122,6 +122,8 @@ sudo certbot --nginx -d workspace.tfgsolutions.com
 */5 * * * * curl -fsS -H "Authorization: Bearer <CRON_SECRET>" http://127.0.0.1:3000/api/cron/digest > /dev/null
 # Nightly database dump + uploads copy, keep 14 days
 0 3 * * * pg_dump -Fc tfg_workspace > ~/backups/db-$(date +\%F).dump && find ~/backups -name 'db-*' -mtime +14 -delete
+# Weekly: delete uploaded files nothing references any more
+0 4 * * 0 cd ~/app && npm run cleanup:uploads -- --yes > /dev/null
 30 3 * * * tar -czf ~/backups/uploads-$(date +\%F).tgz -C ~ uploads && find ~/backups -name 'uploads-*' -mtime +14 -delete
 ```
 

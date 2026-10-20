@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { loadMessages, markRead, sendMessage } from "@/lib/chat";
+import { deleteMessage, editMessage, loadMessages, markRead, sendMessage } from "@/lib/chat";
 import type { ChatMessage } from "@/lib/chat-data";
 import Uploader from "@/app/uploader";
-import { Hash, MessageSquareReply, Send, X } from "lucide-react";
+import { Hash, MessageSquareReply, Pencil, Send, Trash2, X } from "lucide-react";
 import { useRealtime } from "../../realtime";
 import { UserAvatar } from "@/components/user-avatar";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,20 @@ export default function ChatRoom({ channelId, title, meId, names, initial, threa
     markRead(channelId);
   }, [channelId]);
 
+  // Join this channel's room so typing indicators only go to people looking at it.
+  useEffect(() => {
+    if (!socket) return;
+    const join = () =>
+      fetch(`/api/realtime/token?channel=${channelId}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d && socket.emit("join", d.token));
+    join();
+    socket.on("connect", join); // rejoin after reconnects
+    return () => {
+      socket.off("connect", join);
+    };
+  }, [socket, channelId]);
+
   useEffect(() => {
     if (stickToBottom.current) endRef.current?.scrollIntoView({ block: "end" });
     stickToBottom.current = true;
@@ -58,11 +72,22 @@ export default function ChatRoom({ channelId, title, meId, names, initial, threa
     const onTyping = ({ channelId: c, uid }: { channelId: string; uid: string }) => {
       if (c === channelId && uid !== meId) setTyping((t) => ({ ...t, [uid]: Date.now() + 3000 }));
     };
+    const onUpdated = (e: { id: string; text: string }) => setMessages((list) => list.map((x) => (x.id === e.id ? { ...x, text: e.text } : x)));
+    const onDeleted = (e: { id: string; parentId: string | null }) =>
+      setMessages((list) =>
+        e.parentId
+          ? list.map((x) => (x.id === e.parentId ? { ...x, replyCount: Math.max(0, x.replyCount - 1) } : x))
+          : list.filter((x) => x.id !== e.id),
+      );
     socket.on("message:new", onMessage);
     socket.on("typing", onTyping);
+    socket.on("message:updated", onUpdated);
+    socket.on("message:deleted", onDeleted);
     return () => {
       socket.off("message:new", onMessage);
       socket.off("typing", onTyping);
+      socket.off("message:updated", onUpdated);
+      socket.off("message:deleted", onDeleted);
     };
   }, [socket, channelId, meId, router]);
 
@@ -103,8 +128,9 @@ export default function ChatRoom({ channelId, title, meId, names, initial, threa
           )}
           {messages.map((m, i) => (
             <li key={m.id} className="group relative rounded-lg px-2 py-0.5 hover:bg-secondary/50">
-              <Message m={m} compact={continues(messages[i - 1], m)} />
-              <div className={cn("pl-12", m.replyCount === 0 && "absolute top-1 right-2 hidden pl-0 group-focus-within:block group-hover:block")}>
+              <Message m={m} compact={continues(messages[i - 1], m)} mine={m.authorId === meId} />
+              {/* On my own messages the hover Reply sits left of the edit/delete buttons. */}
+              <div className={cn("pl-12", m.replyCount === 0 && "absolute top-1 hidden pl-0 group-focus-within:block group-hover:block", m.replyCount === 0 && (m.authorId === meId ? "right-[4.75rem]" : "right-2"))}>
                 <Link
                   href={`?thread=${m.id}`}
                   scroll={false}
@@ -124,12 +150,12 @@ export default function ChatRoom({ channelId, title, meId, names, initial, threa
         <p className="h-5 px-5 text-xs text-muted-foreground italic">{typers.length > 0 && `${typers.join(", ")} ${typers.length > 1 ? "are" : "is"} typing…`}</p>
         <Composer channelId={channelId} onSent={(m) => setMessages((list) => addUnique(list, m))} placeholder={`Message ${title.replace("# ", "#")}`} />
       </div>
-      {thread && <Thread key={thread.parent.id} channelId={channelId} {...thread} />}
+      {thread && <Thread key={thread.parent.id} channelId={channelId} meId={meId} {...thread} />}
     </div>
   );
 }
 
-function Thread({ channelId, parent, replies: initial }: { channelId: string; parent: ChatMessage; replies: ChatMessage[] }) {
+function Thread({ channelId, meId, parent, replies: initial }: { channelId: string; meId: string; parent: ChatMessage; replies: ChatMessage[] }) {
   const { socket } = useRealtime();
   const [replies, setReplies] = useState(initial);
 
@@ -138,9 +164,15 @@ function Thread({ channelId, parent, replies: initial }: { channelId: string; pa
     const onMessage = (m: ChatMessage) => {
       if (m.parentId === parent.id) setReplies((list) => addUnique(list, m));
     };
+    const onUpdated = (e: { id: string; text: string }) => setReplies((list) => list.map((x) => (x.id === e.id ? { ...x, text: e.text } : x)));
+    const onDeleted = (e: { id: string }) => setReplies((list) => list.filter((x) => x.id !== e.id));
     socket.on("message:new", onMessage);
+    socket.on("message:updated", onUpdated);
+    socket.on("message:deleted", onDeleted);
     return () => {
       socket.off("message:new", onMessage);
+      socket.off("message:updated", onUpdated);
+      socket.off("message:deleted", onDeleted);
     };
   }, [socket, parent.id]);
 
@@ -151,17 +183,19 @@ function Thread({ channelId, parent, replies: initial }: { channelId: string; pa
         <Link href="?" scroll={false} aria-label="Close thread" className="grid size-8 place-items-center rounded-md hover:bg-secondary"><X className="size-4" /></Link>
       </header>
       <ol className="flex-1 overflow-y-auto px-3 py-4">
-        <li className="mb-3 border-b px-2 pb-3"><Message m={parent} /></li>
+        <li className="group mb-3 border-b px-2 pb-3"><Message m={parent} mine={parent.authorId === meId} /></li>
         {replies.length > 0 && <li className="mb-2 px-2 text-xs font-semibold text-muted-foreground">{replies.length} repl{replies.length === 1 ? "y" : "ies"}</li>}
-        {replies.map((m, i) => <li key={m.id} className="rounded-lg px-2 py-0.5 hover:bg-secondary/50"><Message m={m} compact={continues(replies[i - 1], m)} /></li>)}
+        {replies.map((m, i) => <li key={m.id} className="group relative rounded-lg px-2 py-0.5 hover:bg-secondary/50"><Message m={m} compact={continues(replies[i - 1], m)} mine={m.authorId === meId} /></li>)}
       </ol>
       <Composer channelId={channelId} parentId={parent.id} onSent={(m) => setReplies((list) => addUnique(list, m))} placeholder="Reply…" />
     </aside>
   );
 }
 
-function Message({ m, compact }: { m: ChatMessage; compact?: boolean }) {
+function Message({ m, compact, mine }: { m: ChatMessage; compact?: boolean; mine?: boolean }) {
   const time = new Date(m.createdAt);
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   return (
     <article className={cn("flex gap-3 text-[15px]", !compact && "mt-2")}>
       <div className="w-9 shrink-0">
@@ -182,7 +216,40 @@ function Message({ m, compact }: { m: ChatMessage; compact?: boolean }) {
             </time>
           </div>
         )}
-        {m.text && <p className="leading-relaxed break-words whitespace-pre-wrap">{m.text}</p>}
+        {editing ? (
+          <form
+            action={async (fd) => {
+              await editMessage(m.id, String(fd.get("text") ?? ""));
+              setEditing(false);
+            }}
+            className="my-1 flex flex-col gap-1.5"
+          >
+            <textarea
+              name="text"
+              defaultValue={m.text}
+              required
+              maxLength={4000}
+              rows={2}
+              autoFocus
+              aria-label="Edit message"
+              onKeyDown={(e) => e.key === "Escape" && setEditing(false)}
+              className="w-full resize-none rounded-lg border border-input bg-background px-3 py-2 text-[15px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            />
+            <div className="flex gap-1.5">
+              <Button type="submit" size="xs">Save</Button>
+              <Button type="button" size="xs" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          </form>
+        ) : (
+          m.text && <p className="leading-relaxed break-words whitespace-pre-wrap">{m.text}</p>
+        )}
+        {confirming && (
+          <div className="my-1 flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground">Delete this message{m.replyCount > 0 && " and its replies"}?</span>
+            <Button size="xs" variant="destructive" onClick={() => deleteMessage(m.id)}>Delete</Button>
+            <Button size="xs" variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+          </div>
+        )}
         {m.attachments.length > 0 && (
           <ul className="mt-1.5 flex flex-wrap gap-2">
             {m.attachments.map((f) => (
@@ -200,6 +267,12 @@ function Message({ m, compact }: { m: ChatMessage; compact?: boolean }) {
           </ul>
         )}
       </div>
+      {mine && !editing && (
+        <div className="hidden shrink-0 items-start gap-0.5 group-focus-within:flex group-hover:flex">
+          <button onClick={() => setEditing(true)} aria-label="Edit message" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-card hover:text-foreground"><Pencil className="size-3.5" /></button>
+          <button onClick={() => setConfirming(true)} aria-label="Delete message" className="grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-card hover:text-destructive"><Trash2 className="size-3.5" /></button>
+        </div>
+      )}
     </article>
   );
 }

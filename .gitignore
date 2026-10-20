@@ -46,3 +46,6 @@ next-env.d.ts
 
 # local file uploads
 /uploads
+
+# Playwright MCP test artifacts
+/.playwright-mcp

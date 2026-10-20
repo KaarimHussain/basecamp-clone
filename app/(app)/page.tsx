@@ -6,13 +6,13 @@ import { activityText } from "@/lib/activity";
 import { AvatarStack, UserAvatar } from "@/components/user-avatar";
 import { EmptyState, PageContainer, Paper, SectionTitle } from "@/components/page";
 import { buttonVariants } from "@/components/ui/button";
-import { relative } from "@/lib/format";
+import { relative, today as todayInTz, TZ } from "@/lib/format";
 
 export const metadata = { title: "Home" };
 
 export default async function Home() {
   const me = await requireMember();
-  const today = new Date(new Date().toISOString().slice(0, 10));
+  const today = todayInTz();
 
   const [categories, activity] = await Promise.all([
     prisma.category.findMany({
@@ -37,7 +37,7 @@ export default async function Home() {
     <PageContainer size="wide">
       <section className="mb-10 text-center">
         <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">
-          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })}
+          {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: TZ })}
         </p>
         <h1 className="mt-1 text-4xl font-extrabold sm:text-5xl">
           Hey, {me.user.name.split(" ")[0]}!

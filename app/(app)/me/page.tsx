@@ -3,7 +3,7 @@ import { CheckSquare } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { toggleDone } from "@/lib/tasks";
-import { dueLabel } from "@/lib/format";
+import { dueLabel, today as todayInTz } from "@/lib/format";
 import { StatusDot } from "@/app/task-fields";
 import { EmptyState, PageContainer, PageHeader, Paper } from "@/components/page";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,7 @@ export default async function MyStuffPage() {
     orderBy: [{ dueAt: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
   });
 
-  const today = new Date(new Date().toISOString().slice(0, 10));
+  const today = todayInTz();
   const weekOut = new Date(today.getTime() + 7 * 86_400_000);
   const groups = [
     { title: "Overdue", rows: tasks.filter((t) => t.dueAt && t.dueAt < today) },

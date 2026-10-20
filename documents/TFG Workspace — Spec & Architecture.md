@@ -150,6 +150,10 @@ Built in order; each phase ships when it works, no fixed dates.
 4. **Phase 4:** leadership auto-follow, category watchers, notification inbox, email digest (SMTP).
 5. **Phase 5:** chat: channels, threads, DMs, file sharing, unread counts, presence.
 6. **Phase 6:** activity log, QA pass, deploy (one VPS: Next.js + PostgreSQL + socket service + upload directory; Vercel is out because uploads need a persistent disk), onboarding the team.
+7. **Phase 7 — Account safety & admin:** forgot-password and owner-issued reset links, magic-link sign-in, remove members, revoke invites, login throttling, signed-in users skip the login page.
+8. **Phase 8 — Resilience:** friendly error, not-found and loading screens; automated tests for the core logic (diffs, notifications, due dates, tokens, file keys, rich text).
+9. **Phase 9 — Notifications & live updates:** DMs ping into Hey! with a chat badge in the top bar, @mentions in task notes notify, to-do pages refresh live when someone else edits them, private channels.
+10. **Phase 10 — Polish:** archived to-dos list with restore, workspace timezone for due dates, reopening a to-do restores its previous status, reordering cards within a column, chat message edit/delete, search across to-dos and comments, disk cleanup of orphaned files, typing indicators scoped to channel members.
 
 ## Open questions for the client
 

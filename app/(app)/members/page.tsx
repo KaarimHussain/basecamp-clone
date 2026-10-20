@@ -2,7 +2,8 @@ import { headers } from "next/headers";
 import { Link2, Mail, UserPlus } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
-import { createInvite, setRole } from "@/lib/actions";
+import { createInvite, revokeInvite, setRole } from "@/lib/actions";
+import PersonActions from "./person-actions";
 import { relative } from "@/lib/format";
 import { PageContainer, PageHeader, Paper, SectionTitle } from "@/components/page";
 import { UserAvatar } from "@/components/user-avatar";
@@ -55,6 +56,10 @@ export default async function MembersPage() {
                   <strong>{i.email}</strong>
                   <Badge variant="secondary">{i.role.toLowerCase()}</Badge>
                   <span className="ml-auto text-xs text-muted-foreground">sent {relative(i.createdAt)}</span>
+                  <form action={revokeInvite}>
+                    <input type="hidden" name="id" value={i.id} />
+                    <Button type="submit" variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive">Revoke</Button>
+                  </form>
                 </div>
                 <code className="flex items-center gap-1.5 text-xs break-all text-muted-foreground">
                   <Link2 className="size-3.5 shrink-0" aria-hidden />{origin}/invite/{i.token}
@@ -86,6 +91,7 @@ export default async function MembersPage() {
                 <Button type="submit" variant="outline" size="sm">Save</Button>
               </form>
             )}
+            {m.role !== "OWNER" && <PersonActions userId={m.userId} name={m.user.name} />}
           </div>
         ))}
       </Paper>

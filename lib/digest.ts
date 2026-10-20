@@ -14,6 +14,7 @@ export async function sendDigests() {
       user: { select: { email: true, name: true } },
       actor: { select: { name: true } },
       task: { select: { id: true, title: true } },
+      message: { select: { channelId: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -30,7 +31,11 @@ export async function sendDigests() {
 
     const lines = items.map((n) => {
       const what = `${esc(n.actor?.name ?? "Someone")} ${NOTIFY_TEXT[n.type] ?? esc(n.type)}`;
-      const task = n.task ? `<a href="${appUrl}/t/${n.task.id}">${esc(n.task.title)}</a>` : "a task";
+      const task = n.task
+        ? `<a href="${appUrl}/t/${n.task.id}">${esc(n.task.title)}</a>`
+        : n.message
+          ? `(<a href="${appUrl}/chat/${n.message.channelId}">open chat</a>)`
+          : "";
       return `<li>${what} ${task}</li>`;
     });
     const { email, name } = items[0].user;

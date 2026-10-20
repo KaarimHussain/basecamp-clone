@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { parseUploads } from "@/lib/storage";
 import { emit } from "@/lib/realtime";
+import { pushNotified } from "@/lib/notify";
 import { channelFor, messageInclude, toChatMessage, type ChatMessage } from "@/lib/chat-data";
 
 // Who receives realtime events for a channel: the whole workspace, or just the DM's members.
@@ -36,6 +37,13 @@ export async function sendMessage(form: FormData): Promise<ChatMessage | null> {
   });
   await markReadNow(channel.id, me.userId);
 
+  // DMs "ping" the other person: a Hey! notification (and the email digest if unread).
+  if (channel.kind === "DM") {
+    const others = await prisma.channelMember.findMany({ where: { channelId: channel.id, userId: { not: me.userId } }, select: { userId: true } });
+    await prisma.notification.createMany({ data: others.map((o) => ({ userId: o.userId, actorId: me.userId, messageId: message.id, type: "dm" })) });
+    await pushNotified(others.map((o) => o.userId));
+  }
+
   const payload = toChatMessage(message);
   await emit(await rooms(channel), "message:new", payload);
   return payload;
@@ -53,7 +61,9 @@ export async function markRead(channelId: string) {
   const me = await requireMember();
   const channel = await channelFor(channelId, me);
   await markReadNow(channel.id, me.userId);
-  revalidatePath("/chat", "layout");
+  // Reading the conversation also clears its DM pings in Hey!.
+  await prisma.notification.updateMany({ where: { userId: me.userId, readAt: null, message: { channelId: channel.id } }, data: { readAt: new Date() } });
+  revalidatePath("/", "layout");
 }
 
 // Older top-level messages (or thread replies) before a cursor, oldest first.
@@ -74,10 +84,23 @@ export async function loadMessages(channelId: string, opts: { before?: string; p
   return rows.reverse().map(toChatMessage);
 }
 
+// Public channels are open to everyone; private ones only to the people picked (plus the creator).
 export async function createChannel(form: FormData) {
   const me = await requireMember();
   const name = z.string().trim().min(1).max(40).parse(form.get("name"));
-  const channel = await prisma.channel.create({ data: { workspaceId: me.workspaceId, name, kind: "PUBLIC" } });
+  const isPrivate = form.get("private") === "on";
+  const picked = isPrivate
+    ? await prisma.member.findMany({ where: { workspaceId: me.workspaceId, userId: { in: form.getAll("memberIds").map(String) } }, select: { userId: true } })
+    : [];
+  const members = [...new Set([me.userId, ...picked.map((m) => m.userId)])];
+  const channel = await prisma.channel.create({
+    data: {
+      workspaceId: me.workspaceId,
+      name,
+      kind: isPrivate ? "PRIVATE" : "PUBLIC",
+      ...(isPrivate && { members: { create: members.map((userId) => ({ userId })) } }),
+    },
+  });
   redirect(`/chat/${channel.id}`);
 }
 
@@ -106,4 +129,26 @@ export async function openDm(form: FormData) {
       },
     }));
   redirect(`/chat/${channel.id}`);
+}
+
+async function ownMessage(id: string, me: { userId: string; workspaceId: string }) {
+  const message = await prisma.message.findFirst({ where: { id, authorId: me.userId, channel: { workspaceId: me.workspaceId } }, include: { channel: true } });
+  if (!message) throw new Error("Message not found");
+  return message;
+}
+
+export async function editMessage(id: string, text: string) {
+  const me = await requireMember();
+  const message = await ownMessage(id, me);
+  const body = { text: z.string().trim().min(1).max(4000).parse(text) };
+  await prisma.message.update({ where: { id: message.id }, data: { body } });
+  await emit(await rooms(message.channel), "message:updated", { id: message.id, channelId: message.channelId, text: body.text });
+}
+
+// Deleting a thread starter removes its replies too (cascade).
+export async function deleteMessage(id: string) {
+  const me = await requireMember();
+  const message = await ownMessage(id, me);
+  await prisma.message.delete({ where: { id: message.id } });
+  await emit(await rooms(message.channel), "message:deleted", { id: message.id, channelId: message.channelId, parentId: message.parentId });
 }

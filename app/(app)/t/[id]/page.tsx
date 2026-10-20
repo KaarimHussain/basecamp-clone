@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import Composer from "./composer";
+import { LiveTask } from "../../realtime";
 
 type FileRow = { id: string; name: string; mime: string; size: number };
 
@@ -95,6 +96,7 @@ export default async function TaskPage({ params }: PageProps<"/t/[id]">) {
 
   return (
     <PageContainer>
+      <LiveTask taskId={task.id} />
       <Breadcrumb href={`/c/${task.categoryId}`} color={task.category.color}>{task.category.name}</Breadcrumb>
 
       <Paper className="px-5 py-8 sm:px-10">

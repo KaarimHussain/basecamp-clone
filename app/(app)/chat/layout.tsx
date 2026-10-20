@@ -2,7 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { createChannel, openDm } from "@/lib/chat";
-import { Hash, Plus } from "lucide-react";
+import { Hash, Lock, Plus } from "lucide-react";
+import { unreadByChannel, visibleChannelsWhere } from "@/lib/chat-unread";
 import { PresenceDot } from "../realtime";
 import { UserAvatar } from "@/components/user-avatar";
 import { Input } from "@/components/ui/input";
@@ -13,11 +14,7 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
   const me = await requireMember();
   const [channels, members] = await Promise.all([
     prisma.channel.findMany({
-      where: {
-        workspaceId: me.workspaceId,
-        OR: [{ kind: "PUBLIC" }, { members: { some: { userId: me.userId } } }],
-        NOT: { category: { archivedAt: { not: null } } }, // archived category: hide its channel
-      },
+      where: visibleChannelsWhere(me),
       include: {
         members: { include: { user: { select: { name: true } } } },
         category: { select: { position: true } },
@@ -30,22 +27,10 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
     }),
   ]);
 
-  // Unread = top-level messages from others since I last read the channel.
-  // ponytail: one count query per channel; fine for tens of channels, switch to a grouped SQL query past that.
-  const unread = new Map(
-    await Promise.all(
-      channels.map(async (c) => {
-        const lastReadAt = c.members.find((m) => m.userId === me.userId)?.lastReadAt;
-        const n = await prisma.message.count({
-          where: { channelId: c.id, parentId: null, authorId: { not: me.userId }, ...(lastReadAt && { createdAt: { gt: lastReadAt } }) },
-        });
-        return [c.id, n] as const;
-      }),
-    ),
-  );
+  const unread = await unreadByChannel(me);
 
   const publicChannels = channels
-    .filter((c) => c.kind === "PUBLIC")
+    .filter((c) => c.kind !== "DM")
     .sort((a, b) => (a.categoryId ? 1 : 0) - (b.categoryId ? 1 : 0) || (a.category?.position ?? 0) - (b.category?.position ?? 0));
   const dmByUser = new Map(
     channels.filter((c) => c.kind === "DM").map((c) => [c.members.find((m) => m.userId !== me.userId)?.userId, c] as const),
@@ -62,7 +47,7 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
           {publicChannels.map((c) => (
             <li key={c.id}>
               <ActiveLink href={`/chat/${c.id}`}>
-                <Hash className="size-4 text-muted-foreground" aria-hidden />
+                {c.kind === "PRIVATE" ? <Lock className="size-4 text-muted-foreground" aria-label="Private" /> : <Hash className="size-4 text-muted-foreground" aria-hidden />}
                 <span className="truncate">{c.name}</span>
                 <Badge n={unread.get(c.id) ?? 0} />
               </ActiveLink>
@@ -73,9 +58,25 @@ export default async function ChatLayout({ children }: LayoutProps<"/chat">) {
           <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
             <Plus className="size-3.5" aria-hidden /> New channel
           </summary>
-          <form action={createChannel} className="mt-2 flex gap-1">
-            <Input name="name" required maxLength={40} placeholder="channel-name" aria-label="Channel name" className="h-8" />
-            <Button type="submit" size="sm" variant="outline">Add</Button>
+          <form action={createChannel} className="mt-2 flex flex-col gap-2">
+            <div className="flex gap-1">
+              <Input name="name" required maxLength={40} placeholder="channel-name" aria-label="Channel name" className="h-8" />
+              <Button type="submit" size="sm" variant="outline">Add</Button>
+            </div>
+            <div className="group/private">
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                <input type="checkbox" name="private" className="accent-primary" />
+                <Lock className="size-3" aria-hidden /> Private: only people I pick
+              </label>
+              <div className="mt-1.5 hidden max-h-40 flex-col gap-1 overflow-y-auto pl-1 group-has-[input[name=private]:checked]/private:flex">
+                {members.map((m) => (
+                  <label key={m.userId} className="flex items-center gap-1.5 text-xs">
+                    <input type="checkbox" name="memberIds" value={m.userId} className="accent-primary" />
+                    {m.user.name}
+                  </label>
+                ))}
+              </div>
+            </div>
           </form>
         </details>
 

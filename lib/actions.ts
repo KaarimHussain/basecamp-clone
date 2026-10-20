@@ -5,7 +5,10 @@ import bcrypt from "bcryptjs";
 import { AuthError } from "next-auth";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { signIn, signOut } from "@/auth";
+import { redirect } from "next/navigation";
+import { signIn, signOut, Throttled } from "@/auth";
+import { consumeToken, issueToken } from "@/lib/auth-tokens";
+import { allow } from "@/lib/throttle";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
 import { backfill, removeLeadershipFollows } from "@/lib/leadership";
@@ -15,6 +18,7 @@ export async function login(_: string | undefined, form: FormData) {
   try {
     await signIn("credentials", { email: form.get("email"), password: form.get("password"), redirectTo: "/" });
   } catch (e) {
+    if (e instanceof Throttled) return "Too many attempts. Wait 15 minutes, or use “Email me a sign-in link”.";
     if (e instanceof AuthError) return "Invalid email or password.";
     throw e; // successful sign-in throws a redirect
   }
@@ -218,4 +222,91 @@ export async function updateAccount(_: string | undefined, form: FormData) {
   await prisma.user.update({ where: { id: me.userId }, data: { name, ...(passwordHash && { passwordHash }) } });
   revalidatePath("/", "layout");
   return passwordHash ? "Saved. Your password was changed." : "Saved.";
+}
+
+// ── Sign-in links & password reset ───────────────────────
+
+const SENT = "If that email belongs to an account, a link is on its way. Check your inbox.";
+const emailField = z.email().transform((s) => s.toLowerCase());
+
+// Same answer whether or not the account exists, so the form can't be used to probe emails.
+async function emailLink(form: FormData, kind: "MAGIC" | "RESET") {
+  const parsed = emailField.safeParse(form.get("email"));
+  if (!parsed.success) return "Enter a valid email address.";
+  const email = parsed.data;
+  if (!allow(`link:${email}`, 3, 15 * 60_000)) return SENT; // quietly cap at 3 mails / 15 min
+  const user = await prisma.user.findUnique({ where: { email }, include: { memberships: { take: 1 } } });
+  if (!user || user.memberships.length === 0) return SENT;
+
+  const raw = await issueToken(user.id, kind);
+  const link = `${appUrl()}/${kind === "MAGIC" ? "magic" : "reset"}/${raw}`;
+  await sendMail(
+    email,
+    kind === "MAGIC" ? "Your TFG Workspace sign-in link" : "Reset your TFG Workspace password",
+    kind === "MAGIC"
+      ? `<p>Hi ${esc(user.name)},</p><p><a href="${link}">Sign in to TFG Workspace</a>. This link works once and expires in 15 minutes.</p>`
+      : `<p>Hi ${esc(user.name)},</p><p><a href="${link}">Choose a new password</a>. This link works once and expires in 1 hour.</p><p>If you didn't ask for this, ignore this email.</p>`,
+  ).catch((err) => console.error("[mail] link failed:", err));
+  return SENT;
+}
+
+export async function requestMagicLink(_: string | undefined, form: FormData) {
+  return emailLink(form, "MAGIC");
+}
+
+export async function requestReset(_: string | undefined, form: FormData) {
+  return emailLink(form, "RESET");
+}
+
+export async function magicSignIn(form: FormData) {
+  try {
+    await signIn("magic", { token: form.get("token"), redirectTo: "/" });
+  } catch (e) {
+    if (e instanceof AuthError) redirect("/login?error=link");
+    throw e;
+  }
+}
+
+export async function resetPassword(_: string | undefined, form: FormData) {
+  const parsed = z.object({ token: z.string(), password: z.string().min(8, "Password must be at least 8 characters.") }).safeParse(Object.fromEntries(form));
+  if (!parsed.success) return parsed.error.issues[0].message;
+  const userId = await consumeToken(parsed.data.token, "RESET");
+  if (!userId) return "This link is invalid, expired or already used. Request a new one.";
+  const user = await prisma.user.update({ where: { id: userId }, data: { passwordHash: await bcrypt.hash(parsed.data.password, 10) } });
+  await signIn("credentials", { email: user.email, password: parsed.data.password, redirectTo: "/" });
+}
+
+// ── People admin (owner) ──────────────────────────────────
+
+// For people whose email isn't working: the owner hands them a one-time reset link.
+export async function ownerResetLink(_: string | undefined, form: FormData) {
+  const me = await requireMember("OWNER");
+  const userId = z.string().parse(form.get("userId"));
+  const member = await prisma.member.findUnique({ where: { workspaceId_userId: { workspaceId: me.workspaceId, userId } } });
+  if (!member) return undefined;
+  return `${appUrl()}/reset/${await issueToken(userId, "RESET")}`;
+}
+
+// Removes access but keeps everything they wrote (comments, messages, history).
+export async function removeMember(form: FormData) {
+  const me = await requireMember("OWNER");
+  const userId = z.string().parse(form.get("userId"));
+  if (userId === me.userId) throw new Error("You can't remove yourself");
+  const ws = me.workspaceId;
+  await prisma.$transaction([
+    prisma.member.deleteMany({ where: { workspaceId: ws, userId, role: { not: "OWNER" } } }),
+    prisma.categoryWatcher.deleteMany({ where: { userId, category: { workspaceId: ws } } }),
+    prisma.taskSubscriber.deleteMany({ where: { userId, task: { workspaceId: ws } } }),
+    prisma.taskAssignee.deleteMany({ where: { userId, task: { workspaceId: ws } } }),
+    prisma.channelMember.deleteMany({ where: { userId, channel: { workspaceId: ws, kind: { not: "DM" } } } }),
+    prisma.notification.deleteMany({ where: { userId } }),
+    prisma.authToken.deleteMany({ where: { userId } }),
+  ]);
+  revalidatePath("/", "layout");
+}
+
+export async function revokeInvite(form: FormData) {
+  const me = await requireMember("OWNER");
+  await prisma.invite.deleteMany({ where: { id: z.string().parse(form.get("id")), workspaceId: me.workspaceId, acceptedAt: null } });
+  revalidatePath("/members");
 }

@@ -52,6 +52,7 @@ export function activityText(action: string, meta: unknown): string {
     case "commented": return "commented";
     case "files": return `attached ${m.added?.join(", ")}`;
     case "archived": return "archived this task";
+    case "restored": return "restored this task from the archive";
     default: return action;
   }
 }

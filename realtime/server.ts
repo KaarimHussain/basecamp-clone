@@ -1,6 +1,7 @@
 // Standalone Socket.io service: `npm run realtime`.
 // Browsers connect with a token from /api/realtime/token; Next.js pushes events via POST /emit.
-// Rooms: ws:<workspaceId> (everyone), user:<userId> (one person, all tabs).
+// Rooms: ws:<workspaceId> (everyone), user:<userId> (one person, all tabs),
+// channel:<id> (people currently viewing a channel; joined with a per-channel token from Next.js).
 import "dotenv/config";
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
@@ -63,9 +64,19 @@ io.on("connection", (socket) => {
   online.set(ws, users);
   broadcastPresence(ws);
 
-  // ponytail: typing goes to the whole workspace and clients filter by channel; scope to channel members if DM privacy matters.
+  // Next.js only signs a join token after checking the user can see the channel.
+  socket.on("join", (token: unknown) => {
+    const claims = typeof token === "string" ? verifyToken(token, SECRET) : null;
+    if (!claims?.ch || claims.uid !== uid) return;
+    for (const room of socket.rooms) if (room.startsWith("channel:")) socket.leave(room);
+    socket.join(`channel:${claims.ch}`);
+  });
+
+  // Typing only reaches people viewing the same channel, and only from someone who joined it.
   socket.on("typing", (channelId: unknown) => {
-    if (typeof channelId === "string") socket.to(`ws:${ws}`).emit("typing", { channelId, uid });
+    if (typeof channelId === "string" && socket.rooms.has(`channel:${channelId}`)) {
+      socket.to(`channel:${channelId}`).emit("typing", { channelId, uid });
+    }
   });
 
   socket.on("disconnect", () => {

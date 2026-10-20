@@ -2,6 +2,7 @@
   "name": "basecamp-clone",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +11,9 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "postinstall": "prisma generate",
-    "realtime": "tsx realtime/server.ts"
+    "realtime": "tsx realtime/server.ts",
+    "test": "tsx --conditions=react-server --test tests/*.test.ts",
+    "cleanup:uploads": "tsx scripts/cleanup-uploads.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

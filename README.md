@@ -29,7 +29,19 @@ npm run dev
 npm run realtime
 ```
 
-Open http://localhost:3000 and sign in with the seeded owner. Without `SMTP_URL`, emails (invites, digest) are printed to the server console instead of sent.
+Open http://localhost:3000 and sign in with the seeded owner. Without `SMTP_URL`, emails (invites, digest, sign-in and reset links) are printed to the server console, links included, instead of sent.
+
+Run the tests:
+
+```bash
+npm test
+```
+
+List (or with `-- --yes`, delete) uploaded files nothing references any more:
+
+```bash
+npm run cleanup:uploads
+```
 
 Trigger the email digest by hand:
 
@@ -44,7 +56,8 @@ curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/dige
 3. **Members → Invite**: invite the two Project Managers, the QA Lead and the four other Leads with role **leadership**, and everyone else as **member**. Each person gets an email with a 7-day link (the link is also shown on the page, to send by hand if mail isn't set up).
 4. Leadership members **automatically follow every task**: they get an inbox notification for every new task, comment, status change, due-date change and completion, plus an email digest of anything unread after 15 minutes. They can mute a task but not unfollow it.
 5. Optional: on **Categories**, add non-leadership **watchers** to a department (e.g. the cover designer on Cover Design) so they auto-follow those tasks too.
-6. Team members can **Follow** any task by hand, and anyone @mentioned in a comment starts following it.
+6. Team members can **Follow** any task by hand, and anyone @mentioned in a comment or in a to-do's notes starts following it.
+7. **Locked out?** Anyone can use **Forgot password?** or **Email me a sign-in link** on the sign-in page. The owner can also create a one-time reset link from **People → ⋯** (handy if email isn't set up), or remove someone from the workspace there.
 
 ### Roles
 

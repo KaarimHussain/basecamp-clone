@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Home, MessagesSquare, Bell, CheckSquare, Shapes, Users, Menu, Moon, Sun, Monitor, LogOut, UserRound } from "lucide-react";
+import { Home, MessagesSquare, Bell, CheckSquare, Shapes, Users, Menu, Moon, Sun, Monitor, LogOut, UserRound, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -15,14 +15,15 @@ import { UserAvatar } from "@/components/user-avatar";
 import { logout } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 
-type Props = { me: { id: string; name: string; email: string; role: string }; unread: number; workspace: string };
+type Props = { me: { id: string; name: string; email: string; role: string }; unread: number; chatUnread: number; workspace: string };
 
-function links(isOwner: boolean, unread: number) {
+function links(isOwner: boolean, unread: number, chatUnread: number) {
   return [
     { href: "/", label: "Home", icon: Home, exact: true },
-    { href: "/chat", label: "Chat", icon: MessagesSquare },
+    { href: "/chat", label: "Chat", icon: MessagesSquare, badge: chatUnread },
     { href: "/inbox", label: "Hey!", icon: Bell, badge: unread },
     { href: "/me", label: "My Stuff", icon: CheckSquare },
+    { href: "/search", label: "Find", icon: Search },
     ...(isOwner
       ? [
           { href: "/categories", label: "Categories", icon: Shapes },
@@ -32,10 +33,10 @@ function links(isOwner: boolean, unread: number) {
   ];
 }
 
-export default function AppNav({ me, unread, workspace }: Props) {
+export default function AppNav({ me, unread, chatUnread, workspace }: Props) {
   const path = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
-  const items = links(me.role === "OWNER", unread);
+  const items = links(me.role === "OWNER", unread, chatUnread);
   const active = (href: string, exact?: boolean) =>
     exact ? path === href : path === href || path.startsWith(`${href}/`) || (href === "/" && (path.startsWith("/c/") || path.startsWith("/t/")));
 

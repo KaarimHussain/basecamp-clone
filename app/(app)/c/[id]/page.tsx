@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Archive, Flag, KanbanSquare, ListChecks, Plus, SlidersHorizontal } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
-import { createTask, toggleDone } from "@/lib/tasks";
+import { createTask, restoreTask, toggleDone } from "@/lib/tasks";
 import { dueLabel } from "@/lib/format";
 import { PRIORITIES, STATUSES, StatusDot, TagChip, TaskFields, selectClass } from "@/app/task-fields";
 import { AvatarStack } from "@/components/user-avatar";
@@ -11,6 +11,7 @@ import { Breadcrumb, EmptyState, PageContainer, Paper } from "@/components/page"
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Board, { type Row } from "./board";
+import { LiveTask } from "../../realtime";
 
 // Query string from the defined entries only, so filters survive a view switch.
 const qs = (p: Record<string, string | undefined>) =>
@@ -28,7 +29,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
   const { id } = await params;
   const sp = await searchParams;
   const one = (v: string | string[] | undefined) => (typeof v === "string" && v ? v : undefined);
-  const view = sp.view === "board" ? "board" : "list";
+  const view = sp.view === "board" ? "board" : sp.view === "archived" ? "archived" : "list";
   const filter = { tag: one(sp.tag), status: one(sp.status), assignee: one(sp.assignee) };
   const status = STATUSES.find((s) => s.value === filter.status)?.value;
 
@@ -38,7 +39,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
       where: {
         categoryId: id,
         workspaceId: me.workspaceId,
-        archivedAt: null,
+        archivedAt: view === "archived" ? { not: null } : null,
         ...(status && { status }),
         ...(filter.tag && { tags: { some: { tagId: filter.tag } } }),
         ...(filter.assignee && { assignees: { some: { userId: filter.assignee } } }),
@@ -54,6 +55,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
     prisma.tag.findMany({ where: { workspaceId: me.workspaceId }, orderBy: { name: "asc" } }),
   ]);
   if (!category) notFound();
+  const archivedCount = view === "archived" ? tasks.length : await prisma.task.count({ where: { categoryId: id, archivedAt: { not: null } } });
 
   const rows: Row[] = tasks.map((t) => ({
     id: t.id,
@@ -71,6 +73,7 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
 
   return (
     <PageContainer size={view === "board" ? "wide" : "default"}>
+      <LiveTask categoryId={category.id} />
       <Breadcrumb href="/">Home</Breadcrumb>
 
       <Paper className="overflow-hidden">
@@ -141,7 +144,24 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
             {filtered && <Link href={qs({ view })} className={buttonVariants({ variant: "ghost", size: "sm" })}>Clear</Link>}
           </form>
 
-          {view === "board" ? (
+          {view === "archived" ? (
+            rows.length === 0 ? (
+              <EmptyState icon={<Archive />} title="Nothing archived" />
+            ) : (
+              <ul className="divide-y">
+                {rows.map((t) => (
+                  <li key={t.id} className="flex items-center gap-3 py-3">
+                    <Archive className="size-4 text-muted-foreground" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{t.title}</span>
+                    <form action={restoreTask}>
+                      <input type="hidden" name="id" value={t.id} />
+                      <Button type="submit" variant="outline" size="sm">Restore</Button>
+                    </form>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : view === "board" ? (
             <Board tasks={rows} />
           ) : rows.length === 0 ? (
             <EmptyState icon={<ListChecks />} title={filtered ? "No to-dos match these filters" : "No to-dos yet"}>
@@ -156,6 +176,14 @@ export default async function CategoryPage({ params, searchParams }: PageProps<"
                   <TodoList rows={done} />
                 </section>
               )}
+            </div>
+          )}
+          {archivedCount > 0 && (
+            <div className="mt-8 text-center">
+              <Link href={qs({ view: view === "archived" ? "list" : "archived" })} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+                <Archive className="size-4" aria-hidden />
+                {view === "archived" ? "Back to to-dos" : `${archivedCount} archived to-do${archivedCount > 1 ? "s" : ""}`}
+              </Link>
             </div>
           )}
         </div>

@@ -1,32 +1,23 @@
-"use client";
-
-import { useActionState } from "react";
-import { Loader2 } from "lucide-react";
-import { login } from "@/lib/actions";
+import { redirect } from "next/navigation";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 import { AuthShell } from "@/components/auth-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import LoginForm from "./login-form";
 
-export default function LoginPage() {
-  const [error, action, pending] = useActionState(login, undefined);
+export const metadata = { title: "Sign in" };
+
+export default async function LoginPage({ searchParams }: PageProps<"/login">) {
+  const session = await auth();
+  // Already signed in (and still a member)? Skip straight to the workspace.
+  if (session?.user?.id && (await prisma.member.findFirst({ where: { userId: session.user.id } }))) redirect("/");
+  const linkError = (await searchParams).error === "link";
+
   return (
     <AuthShell title="Welcome back" subtitle="Sign in to your team's workspace.">
-      <form action={action} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" required autoComplete="email" autoFocus placeholder="you@tfgsolutions.com" />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" name="password" type="password" required autoComplete="current-password" />
-        </div>
-        {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">{error}</p>}
-        <Button type="submit" size="lg" disabled={pending} className="mt-1">
-          {pending && <Loader2 className="animate-spin" aria-hidden />}
-          {pending ? "Signing in…" : "Sign in"}
-        </Button>
-      </form>
+      <LoginForm linkError={linkError} />
     </AuthShell>
   );
 }
+
+// Per-request auth; nothing to prerender.
+export const instant = false;

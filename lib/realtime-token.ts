@@ -1,7 +1,8 @@
 // Shared by Next.js and the standalone socket service, so no "server-only" here.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export type RealtimeClaims = { uid: string; ws: string; exp: number };
+// `ch` is set on per-channel join tokens (proof the user may see that channel).
+export type RealtimeClaims = { uid: string; ws: string; exp: number; ch?: string };
 
 const sign = (data: string, secret: string) => createHmac("sha256", secret).update(data).digest("base64url");
 

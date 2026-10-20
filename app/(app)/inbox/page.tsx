@@ -19,6 +19,7 @@ function load(userId: string) {
     include: {
       actor: { select: { id: true, name: true } },
       task: { select: { title: true, category: { select: { name: true, color: true } } } },
+      message: { select: { body: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 100, // ponytail: newest 100 only; add cursor paging if people need older history
@@ -35,9 +36,12 @@ function List({ rows }: { rows: Item[] }) {
             {n.actor ? <UserAvatar id={n.actor.id} name={n.actor.name} /> : <span className="size-8 rounded-full bg-muted" />}
             <span className="min-w-0 flex-1 text-sm">
               <span className="block">
-                <strong>{n.actor?.name ?? "Someone"}</strong> {NOTIFY_TEXT[n.type] ?? n.type}{" "}
-                <strong>{n.task?.title ?? "a to-do"}</strong>
+                <strong>{n.actor?.name ?? "Someone"}</strong> {NOTIFY_TEXT[n.type] ?? n.type}
+                {n.task && <> <strong>{n.task.title}</strong></>}
               </span>
+              {n.message && (
+                <span className="mt-0.5 line-clamp-1 text-muted-foreground">“{(n.message.body as { text?: string }).text || "📎 a file"}”</span>
+              )}
               {n.task && (
                 <span className="mt-0.5 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                   <span className="size-2 rounded-full" style={{ background: n.task.category.color }} aria-hidden />

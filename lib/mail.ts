@@ -10,7 +10,9 @@ export const appUrl = () => process.env.APP_URL ?? "http://localhost:3000";
 // Without SMTP_URL (local dev) mail is logged instead of sent.
 export async function sendMail(to: string, subject: string, html: string) {
   if (!transport) {
-    console.log(`[mail] SMTP_URL not set; would email ${to}: ${subject}`);
+    // Local dev: print the links so sign-in/reset/invite flows still work without a mail server.
+    const links = [...html.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+    console.log(`[mail] SMTP_URL not set; would email ${to}: ${subject}${links.length ? ` → ${links.join(" ")}` : ""}`);
     return;
   }
   await transport.sendMail({ from: process.env.EMAIL_FROM, to, subject, html });
