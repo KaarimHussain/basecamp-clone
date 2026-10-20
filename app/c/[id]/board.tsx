@@ -4,9 +4,9 @@ import { useId, useOptimistic, startTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { DndContext, PointerSensor, KeyboardSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { moveTask } from "@/lib/tasks";
-import { PRIORITIES, STATUSES } from "@/app/task-fields";
+import { PRIORITIES, STATUSES, TagChip } from "@/app/task-fields";
 
-type Row = { id: string; title: string; status: string; priority: number; dueAt: string | null; assignees: string[] };
+type Row = { id: string; title: string; status: string; priority: number; dueAt: string | null; assignees: string[]; tags: { id: string; name: string; color: string }[] };
 
 export default function Board({ tasks }: { tasks: Row[] }) {
   const [optimistic, move] = useOptimistic(tasks, (state, { id, status }: { id: string; status: string }) =>
@@ -68,6 +68,7 @@ function Card({ task }: { task: Row }) {
         {task.priority > 0 && <span>{PRIORITIES[task.priority]}</span>}
         {task.dueAt && <span>Due {task.dueAt}</span>}
         {task.assignees.length > 0 && <span>{task.assignees.join(", ")}</span>}
+        {task.tags.map((tag) => <TagChip key={tag.id} tag={tag} />)}
       </div>
     </article>
   );

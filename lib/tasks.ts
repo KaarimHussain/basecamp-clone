@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireMember } from "@/lib/session";
-import type { SubReason } from "@/app/generated/prisma/client";
+import { isEmpty, richText } from "@/lib/rich-text";
+import { Prisma, type SubReason } from "@/app/generated/prisma/client";
 
 const STATUS = z.enum(["TODO", "IN_PROGRESS", "REVIEW", "DONE"]);
 
@@ -31,6 +32,10 @@ async function validAssignees(workspaceId: string, ids: string[]) {
   return rows.map((r) => r.userId);
 }
 
+function validTags(workspaceId: string, form: FormData) {
+  return prisma.tag.findMany({ where: { workspaceId, id: { in: form.getAll("tagIds").map(String) } }, select: { id: true } });
+}
+
 async function ownTask(id: string, workspaceId: string) {
   const task = await prisma.task.findFirst({ where: { id, workspaceId, archivedAt: null } });
   if (!task) throw new Error("Task not found");
@@ -45,6 +50,7 @@ export async function createTask(form: FormData) {
 
   const { assigneeIds, ...data } = readForm(form);
   const assignees = await validAssignees(me.workspaceId, assigneeIds);
+  const tags = await validTags(me.workspaceId, form);
 
   await prisma.$transaction(async (tx) => {
     const task = await tx.task.create({
@@ -56,6 +62,7 @@ export async function createTask(form: FormData) {
         position: Date.now(), // ponytail: append-only ordering; fractional reorder when in-column drag lands
         completedAt: data.status === "DONE" ? new Date() : null,
         assignees: { create: assignees.map((userId) => ({ userId })) },
+        tags: { create: tags.map((t) => ({ tagId: t.id })) },
       },
     });
 
@@ -84,15 +91,20 @@ export async function updateTask(form: FormData) {
   const task = await ownTask(z.string().parse(form.get("id")), me.workspaceId);
   const { assigneeIds, ...data } = readForm(form);
   const assignees = await validAssignees(me.workspaceId, assigneeIds);
+  const description = form.has("description") ? richText.parse(form.get("description")) : undefined;
+  const tags = await validTags(me.workspaceId, form);
 
   await prisma.$transaction([
     prisma.task.update({
       where: { id: task.id },
       data: {
         ...data,
+        ...(description && { description: isEmpty(description) ? Prisma.DbNull : description }),
         completedAt: data.status === "DONE" ? (task.completedAt ?? new Date()) : null,
       },
     }),
+    prisma.taskTag.deleteMany({ where: { taskId: task.id } }),
+    prisma.taskTag.createMany({ data: tags.map((t) => ({ taskId: task.id, tagId: t.id })) }),
     prisma.taskAssignee.deleteMany({ where: { taskId: task.id } }),
     prisma.taskAssignee.createMany({ data: assignees.map((userId) => ({ taskId: task.id, userId })) }),
     prisma.taskSubscriber.createMany({

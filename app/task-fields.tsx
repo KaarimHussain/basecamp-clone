@@ -14,10 +14,12 @@ type Defaults = {
   priority?: number;
   dueAt?: Date | null;
   assigneeIds?: string[];
+  tagIds?: string[];
 };
+type Tag = { id: string; name: string; color: string };
 
 // Shared by the new-task form and the task detail page.
-export function TaskFields({ members, task = {} }: { members: Member[]; task?: Defaults }) {
+export function TaskFields({ members, tags = [], task = {} }: { members: Member[]; tags?: Tag[]; task?: Defaults }) {
   return (
     <>
       <input name="title" defaultValue={task.title} placeholder="Task title" required aria-label="Title" className="rounded border px-3 py-2" />
@@ -39,6 +41,25 @@ export function TaskFields({ members, task = {} }: { members: Member[]; task?: D
           </label>
         ))}
       </fieldset>
+      {tags.length > 0 && (
+        <fieldset className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          <legend className="mb-1 text-zinc-500">Tags</legend>
+          {tags.map((t) => (
+            <label key={t.id} className="flex items-center gap-1">
+              <input type="checkbox" name="tagIds" value={t.id} defaultChecked={task.tagIds?.includes(t.id)} />
+              <TagChip tag={t} />
+            </label>
+          ))}
+        </fieldset>
+      )}
     </>
+  );
+}
+
+export function TagChip({ tag }: { tag: Tag }) {
+  return (
+    <span className="rounded px-1.5 py-0.5 text-xs text-white" style={{ background: tag.color }}>
+      {tag.name}
+    </span>
   );
 }
