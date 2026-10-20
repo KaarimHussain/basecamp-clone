@@ -22,8 +22,10 @@ export default async function Home() {
       </header>
       <ul className="grid gap-3 sm:grid-cols-3">
         {categories.map((c) => (
-          <li key={c.id} className="rounded border p-4" style={{ borderTop: `4px solid ${c.color}` }}>
-            {c.name}
+          <li key={c.id}>
+            <Link href={`/c/${c.id}`} className="block rounded border p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900" style={{ borderTop: `4px solid ${c.color}` }}>
+              {c.name}
+            </Link>
           </li>
         ))}
       </ul>

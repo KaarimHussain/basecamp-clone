@@ -140,16 +140,16 @@ Rules:
 - Leaders can mute a single task, but can't unfollow by default (Owner setting).
 - Email digest batches anything unread after 15 minutes, so leadership isn't spammed.
 
-## Milestones
+## Phases
 
-Roughly 6 weeks for one dev working full-time; these are estimates, not commitments.
+Built in order; each phase ships when it works, no fixed dates.
 
-1. **Week 1:** repo, Prisma schema, Auth.js, workspace + invites + roles, seed categories.
-2. **Week 2:** tasks CRUD, list + Kanban views (dnd-kit), assignees, due dates, status.
-3. **Week 3:** task detail, comments with @mentions (Tiptap), tags + filters, R2 uploads.
-4. **Week 4:** leadership auto-follow, category watchers, notification inbox, email digest (Resend).
-5. **Week 5:** chat: channels, threads, DMs, file sharing, unread counts, presence.
-6. **Week 6:** activity log, QA pass, deploy (Vercel + self-hosted PostgreSQL + Railway socket service), onboarding the team.
+1. **Phase 1:** repo, Prisma schema, Auth.js, workspace + invites + roles, seed categories.
+2. **Phase 2:** tasks CRUD, list + Kanban views (dnd-kit), assignees, due dates, status.
+3. **Phase 3:** task detail, comments with @mentions (Tiptap), tags + filters, R2 uploads.
+4. **Phase 4:** leadership auto-follow, category watchers, notification inbox, email digest (Resend).
+5. **Phase 5:** chat: channels, threads, DMs, file sharing, unread counts, presence.
+6. **Phase 6:** activity log, QA pass, deploy (Vercel + self-hosted PostgreSQL + Railway socket service), onboarding the team.
 
 ## Open questions for the client
 

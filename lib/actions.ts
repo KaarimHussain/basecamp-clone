@@ -48,7 +48,7 @@ export async function setRole(form: FormData) {
   const userId = z.string().parse(form.get("userId"));
   const role = z.enum(["LEADERSHIP", "MEMBER"]).parse(form.get("role"));
   if (userId === me.userId) throw new Error("Cannot change your own role");
-  // ponytail: LEADERSHIP backfill/removal on open tasks lands with auto-follow in week 4.
+  // ponytail: LEADERSHIP backfill/removal on open tasks lands with auto-follow in phase 4.
   await prisma.member.update({
     where: { workspaceId_userId: { workspaceId: me.workspaceId, userId } },
     data: { role },
